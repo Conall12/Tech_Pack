@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block title %}{{ "Generating…" if status == "generating" else "Tech Pack" }}{% endblock %}
+{% block body %}
+<header class="topbar">
+  <div class="container row">
+    <a class="brand" href="/"><i></i>Tech Pack</a>
+  </div>
+</header>
+
+<main class="container narrow center">
+  {% if status == "generating" %}
+  <div class="card pending" style="width:100%">
+    <div class="spinner lg" style="margin:0 auto"></div>
+    <div class="timer" id="timer">0:00</div>
+    <h1 style="font-size:20px">Writing your tech pack</h1>
+    <p class="muted" style="margin:8px auto 0;max-width:440px">This usually takes 5–10 minutes. It keeps running in the background, so you can close this tab and find it on the home page later.</p>
+    {% if images %}
+    <div class="thumbs" style="justify-content:center;margin-top:24px">
+      {% for img in images %}<div class="thumb"><img src="/packs/{{ pack_id }}/images/{{ img }}" alt=""></div>{% endfor %}
+    </div>
+    {% endif %}
+    <div style="margin-top:24px"><a class="btn" href="/">Back to home</a></div>
+  </div>
+  <script>
+    const started = {{ (meta.started or 0) * 1000 }} || Date.now();
+    const tick = () => { const s = Math.max(0, Math.floor((Date.now() - started) / 1000)); document.getElementById("timer").textContent = Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0"); };
+    tick(); setInterval(tick, 1000);
+    setInterval(async () => {
+      try { const r = await (await fetch("/packs/{{ pack_id }}/status", { cache: "no-store" })).json(); if (r.status !== "generating") location.reload(); } catch (e) {}
+    }, 4000);
+  </script>
+  {% else %}
+  <div class="card pending" style="width:100%">
+    <span class="badge bad">Generation failed</span>
+    <h1 style="font-size:20px;margin-top:14px">That didn't work</h1>
+    <p class="muted" style="margin:8px auto 0;max-width:480px">{{ error or "Something went wrong." }}</p>
+    <div style="margin-top:24px;display:flex;gap:10px;justify-content:center;flex-wrap:wrap">
+      <form action="/packs/{{ pack_id }}/retry" method="post"><button class="btn primary" type="submit">Try again</button></form>
+      <a class="btn" href="/">Back to home</a>
+      <form action="/packs/{{ pack_id }}/delete" method="post" onsubmit="return confirm('Delete this attempt?')"><button class="btn danger" type="submit">Delete</button></form>
+    </div>
+  </div>
+  {% endif %}
+</main>
+{% endblock %}

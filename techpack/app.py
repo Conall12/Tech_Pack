@@ -1,19 +1,26 @@
-"""Local web app: upload reference images + brief -> printable tech pack."""
+"""Local web app: upload reference images + brief -> printable tech pack.
+
+Generation takes minutes, so it runs as a background job. The pack page shows
+progress and picks up the result, and you can close the tab and come back.
+"""
 
 import base64
-import io
 import json
 import os
 import re
+import shutil
+import threading
+import time
 from datetime import datetime
 from pathlib import Path
-from typing import List
-from urllib.parse import quote
+from typing import List, Optional
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
+from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
+from .export import build_xlsx, grade_steps
 from .generator import GenerationError, ReferenceImage, generate, load_image, revise
 from .schema import TechPack
 
@@ -22,11 +29,17 @@ DATA_DIR = Path(os.environ.get("TECHPACK_DATA", BASE_DIR.parent / "packs"))
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 ALLOWED_TYPES = {"image/jpeg", "image/png", "image/webp", "image/gif"}
+EXT = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp", "image/gif": ".gif"}
 MAX_IMAGE_BYTES = 5 * 1024 * 1024  # API limit per image
 SAFE_NAME = re.compile(r"^[A-Za-z0-9._-]+$")
+BUSY = ("generating", "revising")
 
 app = FastAPI(title="Tech Pack Generator")
+app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 templates = Jinja2Templates(directory=BASE_DIR / "templates")
+
+JOBS: dict = {}  # pack_id -> running thread
+_LOCK = threading.RLock()
 
 
 def svg_data_uri(svg: str) -> str:
@@ -35,26 +48,12 @@ def svg_data_uri(svg: str) -> str:
 
 
 templates.env.filters["svg_uri"] = svg_data_uri
-
-
-def grade_steps(values) -> str:
-    """Grade increments between consecutive sizes, e.g. '+3.0 / +3.0 / +3.0'."""
-    nums = []
-    for v in values:
-        m = re.search(r"-?\d+(?:\.\d+)?", str(v))
-        if not m:
-            return "–"
-        nums.append(float(m.group()))
-    if len(nums) < 2:
-        return "–"
-    steps = [round(b - a, 2) for a, b in zip(nums, nums[1:])]
-    if len(set(steps)) == 1:
-        return f"{steps[0]:+g} per size"
-    return " / ".join(f"{d:+g}" for d in steps)
-
-
 templates.env.filters["grade"] = grade_steps
+# Models sometimes append notes like "(placeholder, replace with...)" to short identifiers.
+templates.env.filters["short"] = lambda s: re.split(r"\s*[(\[]", str(s or ""))[0].strip()
 
+
+# ---------- storage helpers ----------
 
 def _pack_dir(pack_id: str) -> Path:
     if not SAFE_NAME.match(pack_id):
@@ -69,34 +68,114 @@ def _versions(pack_dir: Path) -> List[int]:
     return sorted(int(p.stem[1:]) for p in pack_dir.glob("v*.json") if p.stem[1:].isdigit())
 
 
+def _image_names(pack_dir: Path) -> List[str]:
+    folder = pack_dir / "images"
+    return sorted(p.name for p in folder.iterdir()) if folder.is_dir() else []
+
+
 def _images(pack_dir: Path) -> List[ReferenceImage]:
     return [img for p in sorted((pack_dir / "images").iterdir()) if (img := load_image(str(p)))]
 
 
-def _save_version(pack_dir: Path, pack: TechPack, note: str) -> int:
-    version = (_versions(pack_dir) or [0])[-1] + 1
-    (pack_dir / f"v{version}.json").write_text(json.dumps(pack.model_dump(), indent=2))
-    meta_path = pack_dir / "meta.json"
-    meta = json.loads(meta_path.read_text())
-    meta.setdefault("history", []).append({"version": version, "note": note, "at": datetime.now().strftime("%Y-%m-%d %H:%M")})
-    meta["style_name"] = pack.style_name
-    meta_path.write_text(json.dumps(meta, indent=2))
-    return version
+def _read_meta(pack_dir: Path) -> dict:
+    with _LOCK:
+        return json.loads((pack_dir / "meta.json").read_text())
 
+
+def _update_meta(pack_dir: Path, **changes) -> dict:
+    """Merge changes into meta.json. A value of None removes the key."""
+    with _LOCK:
+        meta = _read_meta(pack_dir)
+        for k, v in changes.items():
+            if v is None:
+                meta.pop(k, None)
+            else:
+                meta[k] = v
+        (pack_dir / "meta.json").write_text(json.dumps(meta, indent=2))
+        return meta
+
+
+def _save_version(pack_dir: Path, pack: TechPack, note: str) -> int:
+    with _LOCK:
+        version = (_versions(pack_dir) or [0])[-1] + 1
+        (pack_dir / f"v{version}.json").write_text(json.dumps(pack.model_dump(), indent=2))
+        meta = _read_meta(pack_dir)
+        meta.setdefault("history", []).append({"version": version, "note": note, "at": datetime.now().strftime("%Y-%m-%d %H:%M")})
+        meta["style_name"] = pack.style_name
+        (pack_dir / "meta.json").write_text(json.dumps(meta, indent=2))
+        return version
+
+
+def _running(pack_dir: Path) -> bool:
+    """True only while a job is genuinely in progress (status is saved before the thread exits)."""
+    return pack_dir.name in JOBS and _read_meta(pack_dir).get("status") in BUSY
+
+
+def _meta_with_status(pack_dir: Path) -> dict:
+    """Meta, with jobs that died (e.g. server restart) marked as interrupted."""
+    meta = _read_meta(pack_dir)
+    if meta.get("status") in BUSY and pack_dir.name not in JOBS:
+        had_versions = bool(_versions(pack_dir))
+        meta = _update_meta(
+            pack_dir,
+            status="ready" if had_versions else "failed",
+            error="This job was interrupted (the server restarted). Please try again.",
+        )
+    return meta
+
+
+# ---------- background jobs ----------
+
+def _start_job(pack_dir: Path, kind: str, note: str, fn, *args) -> None:
+    pack_id = pack_dir.name
+    _update_meta(pack_dir, status=kind, error=None, started=time.time(), job_note=note)
+
+    def run():
+        try:
+            pack = fn(*args)
+            _save_version(pack_dir, pack, note)
+            _update_meta(pack_dir, status="ready", error=None, started=None, job_note=None)
+        except GenerationError as e:
+            _fail(pack_dir, str(e))
+        except Exception as e:  # keep the job from dying silently
+            _fail(pack_dir, f"Unexpected error: {e}")
+        finally:
+            JOBS.pop(pack_id, None)
+
+    thread = threading.Thread(target=run, daemon=True, name=f"job-{pack_id}")
+    JOBS[pack_id] = thread
+    thread.start()
+
+
+def _fail(pack_dir: Path, message: str) -> None:
+    status = "ready" if _versions(pack_dir) else "failed"
+    _update_meta(pack_dir, status=status, error=message, started=None, job_note=None)
+
+
+# ---------- pages ----------
 
 def _list_packs() -> list:
     packs = []
     for d in sorted(DATA_DIR.iterdir(), reverse=True):
-        meta = d / "meta.json"
-        if d.is_dir() and meta.exists() and _versions(d):
-            m = json.loads(meta.read_text())
-            packs.append({"id": d.name, "name": m.get("style_name", d.name), "created": m.get("created", ""), "versions": len(_versions(d))})
+        if not (d.is_dir() and (d / "meta.json").exists()):
+            continue
+        m = _meta_with_status(d)
+        names = _image_names(d)
+        packs.append({
+            "id": d.name,
+            "name": m.get("style_name") or m.get("brief", {}).get("style_name") or "Untitled style",
+            "category": m.get("brief", {}).get("category", ""),
+            "created": m.get("created", ""),
+            "versions": len(_versions(d)),
+            "status": m.get("status", "ready"),
+            "thumb": names[0] if names else None,
+        })
     return packs
 
 
 @app.get("/", response_class=HTMLResponse)
 def index(request: Request):
-    return templates.TemplateResponse(request, "index.html", {"packs": _list_packs(), "error": None})
+    return templates.TemplateResponse(request, "index.html", {"packs": _list_packs(), "error": None, "form": {}})
 
 
 @app.post("/generate")
@@ -122,19 +201,6 @@ async def create_pack(
     target_price: str = Form(""),
     notes: str = Form(""),
 ):
-    refs: List[ReferenceImage] = []
-    for upload in images:
-        if not upload.filename:
-            continue
-        data = await upload.read()
-        if upload.content_type not in ALLOWED_TYPES:
-            return _form_error(request, f"{upload.filename}: use JPG, PNG, WEBP or GIF.")
-        if len(data) > MAX_IMAGE_BYTES:
-            return _form_error(request, f"{upload.filename} is over 5 MB. Export a smaller version.")
-        refs.append(ReferenceImage(data, upload.content_type, upload.filename))
-    if not refs:
-        return _form_error(request, "Upload at least one reference image.")
-
     brief = {
         "brand": brand, "factory_or_supplier": factory, "order_quantity": order_qty,
         "target_delivery": delivery, "sample_stage": sample_stage, "fit_reference_or_model_size": fit_reference,
@@ -144,129 +210,120 @@ async def create_pack(
         "target_cost": target_price, "other_notes": notes,
     }
 
-    try:
-        pack = await _in_thread(generate, refs, brief)
-    except GenerationError as e:
-        return _form_error(request, str(e))
+    refs: List[ReferenceImage] = []
+    for upload in images:
+        if not upload.filename:
+            continue
+        data = await upload.read()
+        if upload.content_type not in ALLOWED_TYPES:
+            return _form_error(request, f"{upload.filename}: use JPG, PNG, WEBP or GIF.", brief)
+        if len(data) > MAX_IMAGE_BYTES:
+            return _form_error(request, f"{upload.filename} is over 5 MB. Export a smaller version.", brief)
+        refs.append(ReferenceImage(data, upload.content_type, upload.filename))
+    if not refs:
+        return _form_error(request, "Add at least one reference image.", brief)
 
-    slug = re.sub(r"[^a-z0-9]+", "-", (pack.style_name or "pack").lower()).strip("-")[:40] or "pack"
+    slug = re.sub(r"[^a-z0-9]+", "-", (style_name or category or "pack").lower()).strip("-")[:40] or "pack"
     pack_id = f"{datetime.now():%Y%m%d-%H%M%S}-{slug}"
     pack_dir = DATA_DIR / pack_id
     (pack_dir / "images").mkdir(parents=True)
     for i, ref in enumerate(refs, 1):
-        ext = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp", "image/gif": ".gif"}[ref.media_type]
-        (pack_dir / "images" / f"ref{i:02d}{ext}").write_bytes(ref.data)
-    (pack_dir / "meta.json").write_text(json.dumps({"brief": brief, "created": datetime.now().strftime("%Y-%m-%d %H:%M")}, indent=2))
-    _save_version(pack_dir, pack, "Initial generation")
+        (pack_dir / "images" / f"ref{i:02d}{EXT[ref.media_type]}").write_bytes(ref.data)
+    (pack_dir / "meta.json").write_text(json.dumps({
+        "brief": brief, "style_name": style_name, "created": datetime.now().strftime("%Y-%m-%d %H:%M"), "status": "generating",
+    }, indent=2))
+    _start_job(pack_dir, "generating", "Initial generation", generate, refs, brief)
     return RedirectResponse(f"/packs/{pack_id}", status_code=303)
 
 
 @app.get("/packs/{pack_id}", response_class=HTMLResponse)
-def view_pack(request: Request, pack_id: str, v: int = 0, error: str = ""):
+def view_pack(request: Request, pack_id: str, v: int = 0):
     pack_dir = _pack_dir(pack_id)
+    meta = _meta_with_status(pack_dir)
     versions = _versions(pack_dir)
+    ctx = {"pack_id": pack_id, "meta": meta, "images": _image_names(pack_dir), "status": meta.get("status", "ready"), "error": meta.get("error")}
+    if not versions:
+        return templates.TemplateResponse(request, "pending.html", ctx)
     version = v if v in versions else versions[-1]
     pack = TechPack.model_validate_json((pack_dir / f"v{version}.json").read_text())
-    meta = json.loads((pack_dir / "meta.json").read_text())
-    image_names = sorted(p.name for p in (pack_dir / "images").iterdir())
-    return templates.TemplateResponse(
-        request,
-        "pack.html",
-        {
-            "pack": pack, "pack_id": pack_id, "version": version, "versions": versions,
-            "latest": versions[-1], "meta": meta, "images": image_names, "error": error,
-        },
-    )
+    ctx.update({"pack": pack, "version": version, "versions": versions, "latest": versions[-1], "brief": meta.get("brief", {})})
+    return templates.TemplateResponse(request, "pack.html", ctx)
+
+
+@app.get("/packs/{pack_id}/status")
+def pack_status(pack_id: str):
+    pack_dir = _pack_dir(pack_id)
+    meta = _meta_with_status(pack_dir)
+    return {
+        "status": meta.get("status", "ready"),
+        "error": meta.get("error"),
+        "started": meta.get("started"),
+        "versions": len(_versions(pack_dir)),
+    }
 
 
 @app.post("/packs/{pack_id}/revise")
 async def revise_pack(pack_id: str, feedback: str = Form(...), v: int = Form(0)):
     pack_dir = _pack_dir(pack_id)
+    if _running(pack_dir):
+        return RedirectResponse(f"/packs/{pack_id}", status_code=303)
     versions = _versions(pack_dir)
+    if not versions:
+        raise HTTPException(409, "Nothing to revise yet.")
     base = v if v in versions else versions[-1]
     previous = TechPack.model_validate_json((pack_dir / f"v{base}.json").read_text())
-    try:
-        pack = await _in_thread(revise, previous, _images(pack_dir), feedback)
-    except GenerationError as e:
-        return RedirectResponse(f"/packs/{pack_id}?v={base}&error={quote(str(e))}", status_code=303)
-    new_version = _save_version(pack_dir, pack, f"Revised from v{base}: {feedback[:120]}")
-    return RedirectResponse(f"/packs/{pack_id}?v={new_version}", status_code=303)
+    _start_job(pack_dir, "revising", f"Revised from v{base}: {feedback[:120]}", revise, previous, _images(pack_dir), feedback)
+    return RedirectResponse(f"/packs/{pack_id}", status_code=303)
+
+
+@app.post("/packs/{pack_id}/retry")
+def retry_pack(pack_id: str):
+    pack_dir = _pack_dir(pack_id)
+    if not _running(pack_dir) and not _versions(pack_dir):
+        meta = _read_meta(pack_dir)
+        _start_job(pack_dir, "generating", "Initial generation", generate, _images(pack_dir), meta.get("brief", {}))
+    return RedirectResponse(f"/packs/{pack_id}", status_code=303)
+
+
+@app.post("/packs/{pack_id}/dismiss")
+def dismiss_error(pack_id: str):
+    _update_meta(_pack_dir(pack_id), error=None)
+    return RedirectResponse(f"/packs/{pack_id}", status_code=303)
+
+
+@app.post("/packs/{pack_id}/delete")
+def delete_pack(pack_id: str):
+    pack_dir = _pack_dir(pack_id)
+    if _running(pack_dir):
+        raise HTTPException(409, "This pack is still being generated.")
+    shutil.rmtree(pack_dir)
+    return RedirectResponse("/", status_code=303)
+
+
+def _version_of(pack_dir: Path, v: int) -> int:
+    versions = _versions(pack_dir)
+    if not versions:
+        raise HTTPException(404)
+    return v if v in versions else versions[-1]
 
 
 @app.get("/packs/{pack_id}/json")
 def pack_json(pack_id: str, v: int = 0):
     pack_dir = _pack_dir(pack_id)
-    versions = _versions(pack_dir)
-    version = v if v in versions else versions[-1]
+    version = _version_of(pack_dir, v)
     return JSONResponse(json.loads((pack_dir / f"v{version}.json").read_text()))
 
 
 @app.get("/packs/{pack_id}/xlsx")
 def pack_xlsx(pack_id: str, v: int = 0):
-    """Editable export: factories dislike locked PDFs."""
-    from openpyxl import Workbook
-    from openpyxl.styles import Font, PatternFill
-
     pack_dir = _pack_dir(pack_id)
-    versions = _versions(pack_dir)
-    version = v if v in versions else versions[-1]
+    version = _version_of(pack_dir, v)
     pack = TechPack.model_validate_json((pack_dir / f"v{version}.json").read_text())
-    meta = json.loads((pack_dir / "meta.json").read_text())
-    brief = meta.get("brief", {})
-
-    wb = Workbook()
-    head_fill = PatternFill("solid", fgColor="DDDDDD")
-
-    def sheet(title, header, rows, first=False):
-        ws = wb.active if first else wb.create_sheet()
-        ws.title = title
-        ws.append(header)
-        for cell in ws[1]:
-            cell.font = Font(bold=True)
-            cell.fill = head_fill
-        for r in rows:
-            ws.append([str(c) for c in r])
-        for col in ws.columns:
-            ws.column_dimensions[col[0].column_letter].width = min(60, max(12, max(len(str(c.value or "")) for c in col) + 2))
-        ws.freeze_panes = "A2"
-
-    cover = [
-        ("Style name", pack.style_name), ("Style number", pack.style_number), ("Version", f"v{version}"),
-        ("Brand", brief.get("brand", "")), ("Factory / supplier", brief.get("factory_or_supplier", "")),
-        ("Season", pack.season), ("Category", pack.category), ("Fit", pack.gender_fit),
-        ("Sample stage", brief.get("sample_stage", "")), ("Order quantity", brief.get("order_quantity", "")),
-        ("Target delivery", brief.get("target_delivery", "")), ("Target cost", brief.get("target_cost", "")),
-        ("Units", pack.units), ("Sizes", ", ".join(pack.sizes)), ("Base size", pack.base_size),
-        ("Country of origin", pack.country_of_origin), ("Summary", pack.summary),
-    ]
-    sheet("Cover", ["Field", "Value"], cover, first=True)
-    sheet("BOM", ["Component", "Material", "Composition", "Weight/size", "Colour", "Pantone", "Placement", "Qty", "Notes"],
-          [(b.component, b.material, b.composition, b.weight_or_size, b.color, b.pantone, b.placement, b.quantity, b.notes) for b in pack.bill_of_materials])
-    sheet("Colourways", ["Colourway", "Pantone", "Applies to"], [(c.name, c.pantone, c.applies_to) for c in pack.colorways])
-    sheet("Measurements", ["Code", "Point of measure", "Tol +/-", "Grade"] + pack.sizes,
-          [(m.code, m.description, m.tolerance, grade_steps(m.values), *m.values) for m in pack.measurements])
-    sheet("Construction", ["Area", "Operation", "Stitch", "Seam", "SPI", "Seam allowance", "Callout", "Notes"],
-          [(c.area, c.operation, c.stitch_type, c.seam_type, c.spi, c.seam_allowance, c.callout_ref, c.notes) for c in pack.construction])
-    sheet("Artwork", ["Artwork", "Technique", "Size", "Placement", "Colours", "Notes"],
-          [(a.name, a.technique, a.size, a.placement, a.colors, a.notes) for a in pack.artwork])
-    sheet("Labels & trims", ["Item", "Spec", "Size", "Content", "Placement"],
-          [(l.item, l.spec, l.size, l.content, l.placement) for l in pack.labels_and_trims])
-    sheet("Testing", ["Test", "Standard", "Requirement"], [(t.test, t.standard, t.requirement) for t in pack.testing_requirements])
-    pk = pack.packing_details
-    sheet("Packing", ["Item", "Specification"], [
-        ("Folding", pk.folding), ("Polybag", pk.polybag), ("Hangtag / stickers", pk.hangtag_and_stickers),
-        ("Units per carton", pk.units_per_carton), ("Packing ratio", pk.packing_ratio), ("Carton marking", pk.carton_marking),
-    ])
-    sheet("Callouts", ["#", "Detail", "Description"], [(c.number, c.label, c.description) for c in pack.callouts])
-    sheet("Revision log", ["Version", "Date", "Note"], [(h["version"], h["at"], h["note"]) for h in meta.get("history", [])])
-
-    buf = io.BytesIO()
-    wb.save(buf)
-    buf.seek(0)
-    name = f"{pack_id}-v{version}.xlsx"
-    return StreamingResponse(
-        buf, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": f'attachment; filename="{name}"'},
+    data = build_xlsx(pack, _read_meta(pack_dir), version)
+    return Response(
+        data,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{pack_id}-v{version}.xlsx"'},
     )
 
 
@@ -280,11 +337,5 @@ def pack_image(pack_id: str, name: str):
     return FileResponse(path)
 
 
-def _form_error(request: Request, message: str):
-    return templates.TemplateResponse(request, "index.html", {"packs": _list_packs(), "error": message}, status_code=400)
-
-
-async def _in_thread(fn, *args):
-    from starlette.concurrency import run_in_threadpool
-
-    return await run_in_threadpool(fn, *args)
+def _form_error(request: Request, message: str, form: Optional[dict] = None):
+    return templates.TemplateResponse(request, "index.html", {"packs": _list_packs(), "error": message, "form": form or {}}, status_code=400)

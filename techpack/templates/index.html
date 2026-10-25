@@ -1,57 +1,143 @@
 {% extends "base.html" %}
+{% block title %}Tech Pack{% endblock %}
 {% block body %}
-<div class="wrap">
-  <h1>Tech Pack Generator</h1>
-  <p class="muted">Upload your reference images, describe the garment and get a factory-ready tech pack.</p>
+<header class="topbar">
+  <div class="container row">
+    <a class="brand" href="/"><i></i>Tech Pack</a>
+    <span class="spacer"></span>
+    <a class="btn ghost" href="#packs">Your packs</a>
+  </div>
+</header>
 
-  {% if error %}<div class="error">{{ error }}</div>{% endif %}
+<main class="container narrow" style="padding-top:40px;padding-bottom:80px">
+  <h1>New tech pack</h1>
+  <p class="muted" style="margin:6px 0 24px">Add reference images, tell us what you know, and get a factory-ready pack. Anything you leave out is inferred and flagged for review.</p>
 
-  <form class="panel" action="/generate" method="post" enctype="multipart/form-data" data-loading="Generating tech pack…">
-    <h2>1. Reference images</h2>
-    <input type="file" name="images" accept="image/jpeg,image/png,image/webp,image/gif" multiple required>
-    <div class="hint">Front, back and close-ups of details all help. Max 5 MB each.</div>
-    <div id="previews" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px"></div>
+  {% if error %}<div class="banner error" role="alert">{{ error }}</div>{% endif %}
 
-    <h2 style="margin-top:24px">2. The garment</h2>
-    <div class="grid">
-      <div><label>Brand</label><input type="text" name="brand" placeholder="e.g. Croí"></div>
-      <div><label>Factory / supplier</label><input type="text" name="factory" placeholder="optional"></div>
-      <div><label>Order quantity</label><input type="text" name="order_qty" placeholder="e.g. 300 units, S50 M100 L100 XL50"></div>
-      <div><label>Target delivery</label><input type="text" name="delivery" placeholder="e.g. Bulk by 15 Mar 2027"></div>
-      <div><label>Sample stage</label><select name="sample_stage"><option value="">Not sure</option><option>Proto sample</option><option>Fit sample</option><option>SMS (sales sample)</option><option>Pre-production sample</option><option>Bulk production</option></select></div>
-      <div><label>Fit reference / model size</label><input type="text" name="fit_reference" placeholder="e.g. Model 180cm wears M; match fit of [garment]"></div>
-      <div><label>Style name</label><input type="text" name="style_name" placeholder="e.g. Heavyweight Boxy Hoodie"></div>
-      <div><label>Category</label><input type="text" name="category" placeholder="e.g. Hoodie, tee, cargo pant"></div>
-      <div><label>Season / drop</label><input type="text" name="season" placeholder="e.g. SS27"></div>
-      <div><label>Fit</label><input type="text" name="fit" placeholder="e.g. Oversized, boxy, cropped, dropped shoulder"></div>
-      <div><label>Fabric</label><input type="text" name="fabric" placeholder="e.g. 450gsm brushed cotton fleece"></div>
-      <div><label>Colours</label><input type="text" name="colors" placeholder="e.g. Washed black, bone"></div>
-      <div><label>Sizes</label><input type="text" name="sizes" value="XS, S, M, L, XL"></div>
-      <div><label>Units</label><select name="units"><option value="cm">cm</option><option value="in">inches</option></select></div>
-      <div><label>Target cost per unit</label><input type="text" name="target_price" placeholder="optional"></div>
-      <div class="full"><label>Graphics / artwork</label><textarea name="graphics" placeholder="Prints, embroidery, puff, placement, size…"></textarea></div>
-      <div class="full"><label>Trims &amp; hardware</label><textarea name="trims" placeholder="Zips, drawcords, aglets, eyelets, labels, woven tabs…"></textarea></div>
-      <div class="full"><label>Anything else the factory needs to know</label><textarea name="notes" placeholder="Wash effects, construction preferences, things the AI image got wrong…"></textarea></div>
+  {% set f = form or {} %}
+  <form id="gen" class="card stack" action="/generate" method="post" enctype="multipart/form-data">
+    <section>
+      <div class="step"><b>1</b>Reference images</div>
+      <div id="drop" class="dropzone" tabindex="0" role="button" aria-label="Add reference images">
+        <strong>Drop images here, or click to browse</strong>
+        <span class="muted">Front, back and close-ups of details all help. JPG, PNG, WEBP · max 5 MB each</span>
+      </div>
+      <input id="files" type="file" name="images" accept="image/jpeg,image/png,image/webp,image/gif" multiple hidden>
+      <div id="thumbs" class="thumbs"></div>
+    </section>
+
+    <section>
+      <div class="step"><b>2</b>The garment</div>
+      <div class="grid">
+        <div><label for="style_name">Style name</label><input id="style_name" type="text" name="style_name" value="{{ f.style_name or '' }}" placeholder="e.g. Piped Windbreaker"></div>
+        <div><label for="category">Category</label><input id="category" type="text" name="category" value="{{ f.category or '' }}" placeholder="Hoodie, tee, cargo pant…"></div>
+        <div><label for="fit">Fit</label><input id="fit" type="text" name="fit" value="{{ f.fit or '' }}" placeholder="Oversized, boxy, cropped…"></div>
+        <div><label for="fabric">Fabric</label><input id="fabric" type="text" name="fabric" value="{{ f.fabric or '' }}" placeholder="450gsm brushed fleece"></div>
+        <div><label for="colors">Colours</label><input id="colors" type="text" name="colors" value="{{ f.colours or '' }}" placeholder="Washed black, bone"></div>
+        <div><label for="sizes">Sizes</label><input id="sizes" type="text" name="sizes" value="{{ f.sizes or 'XS, S, M, L, XL' }}"></div>
+        <div>
+          <label>Units</label>
+          <div class="seg">
+            <input type="radio" id="u-cm" name="units" value="cm" {% if f.units != 'in' %}checked{% endif %}><label for="u-cm">cm</label>
+            <input type="radio" id="u-in" name="units" value="in" {% if f.units == 'in' %}checked{% endif %}><label for="u-in">inches</label>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <details class="more" {% if f.brand or f.factory_or_supplier or f.order_quantity or f.target_delivery or f.sample_stage or f.graphics_and_artwork or f.trims_and_hardware or f.other_notes %}open{% endif %}>
+      <summary>More details for the factory <span class="muted" style="font-weight:400">(optional)</span></summary>
+      <div class="grid">
+        <div><label for="brand">Brand</label><input id="brand" type="text" name="brand" value="{{ f.brand or '' }}" placeholder="Croí"></div>
+        <div><label for="factory">Factory / supplier</label><input id="factory" type="text" name="factory" value="{{ f.factory_or_supplier or '' }}"></div>
+        <div><label for="season">Season / drop</label><input id="season" type="text" name="season" value="{{ f.season or '' }}" placeholder="SS27"></div>
+        <div><label for="order_qty">Order quantity</label><input id="order_qty" type="text" name="order_qty" value="{{ f.order_quantity or '' }}" placeholder="300 units: S60 M100 L100 XL40"></div>
+        <div><label for="delivery">Target delivery</label><input id="delivery" type="text" name="delivery" value="{{ f.target_delivery or '' }}" placeholder="Bulk by 15 Mar 2027"></div>
+        <div><label for="sample_stage">Sample stage</label>
+          <select id="sample_stage" name="sample_stage">
+            {% for o in ["", "Proto sample", "Fit sample", "SMS (sales sample)", "Pre-production sample", "Bulk production"] %}
+            <option value="{{ o }}" {% if f.sample_stage == o %}selected{% endif %}>{{ o or "Not sure" }}</option>
+            {% endfor %}
+          </select></div>
+        <div><label for="fit_reference">Fit reference / model size</label><input id="fit_reference" type="text" name="fit_reference" value="{{ f.fit_reference_or_model_size or '' }}" placeholder="Model 180cm wears M"></div>
+        <div><label for="target_price">Target cost per unit</label><input id="target_price" type="text" name="target_price" value="{{ f.target_cost or '' }}"></div>
+        <div class="full"><label for="graphics">Graphics / artwork</label><textarea id="graphics" name="graphics" placeholder="Prints, embroidery, puff, placement, size…">{{ f.graphics_and_artwork or '' }}</textarea></div>
+        <div class="full"><label for="trims">Trims &amp; hardware</label><textarea id="trims" name="trims" placeholder="Zips, drawcords, eyelets, labels…">{{ f.trims_and_hardware or '' }}</textarea></div>
+        <div class="full"><label for="notes">Anything else</label><textarea id="notes" name="notes" placeholder="Wash effects, things the reference image got wrong…">{{ f.other_notes or '' }}</textarea></div>
+      </div>
+    </details>
+
+    <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">
+      <button id="go" class="btn primary lg" type="submit">Generate tech pack</button>
+      <span class="muted">Takes about 5–10 minutes. It runs in the background, so you can leave the page.</span>
     </div>
-    <div style="margin-top:20px"><button type="submit">Generate tech pack</button></div>
   </form>
 
-  {% if packs %}
-  <div class="panel">
+  <section id="packs" style="margin-top:56px">
     <h2>Your tech packs</h2>
-    <table>
-      <tr><th>Style</th><th>Created</th><th>Versions</th></tr>
+    {% if packs %}
+    <div class="cards">
       {% for p in packs %}
-      <tr><td><a href="/packs/{{ p.id }}">{{ p.name }}</a></td><td>{{ p.created }}</td><td>{{ p.versions }}</td></tr>
+      <a class="pack-card" href="/packs/{{ p.id }}">
+        <div class="img">{% if p.thumb %}<img src="/packs/{{ p.id }}/images/{{ p.thumb }}" alt="" loading="lazy">{% endif %}</div>
+        <div class="body">
+          <div class="name">{{ p.name }}</div>
+          <div class="sub">
+            <span>{{ p.category or p.created }}</span>
+            {% if p.status in ('generating', 'revising') %}<span class="badge live"><span class="dot"></span>{{ p.status|capitalize }}</span>
+            {% elif p.status == 'failed' %}<span class="badge bad">Failed</span>
+            {% else %}<span class="badge">v{{ p.versions }}</span>{% endif %}
+          </div>
+        </div>
+      </a>
       {% endfor %}
-    </table>
-  </div>
-  {% endif %}
-</div>
+    </div>
+    {% else %}
+    <div class="empty">Nothing yet. Your first pack will show up here.</div>
+    {% endif %}
+  </section>
+</main>
+
 <script>
-  document.querySelector("input[name=images]").addEventListener("change", e => {
-    const box = document.getElementById("previews"); box.innerHTML = "";
-    [...e.target.files].forEach(f => { const i = new Image(); i.src = URL.createObjectURL(f); i.style.cssText = "height:110px;border:1px solid #ccc"; box.appendChild(i); });
+(() => {
+  const drop = document.getElementById("drop"), input = document.getElementById("files"), thumbs = document.getElementById("thumbs");
+  const form = document.getElementById("gen"), go = document.getElementById("go");
+  let files = [];
+  const MAX = 5 * 1024 * 1024, OK = ["image/jpeg", "image/png", "image/webp", "image/gif"];
+
+  function sync() {
+    const dt = new DataTransfer();
+    files.forEach(f => dt.items.add(f));
+    input.files = dt.files;
+    thumbs.innerHTML = "";
+    files.forEach((f, i) => {
+      const d = document.createElement("div"); d.className = "thumb";
+      const img = new Image(); img.src = URL.createObjectURL(f); img.alt = f.name;
+      const x = document.createElement("button"); x.type = "button"; x.textContent = "×"; x.title = "Remove";
+      x.onclick = () => { files.splice(i, 1); sync(); };
+      d.append(img, x); thumbs.append(d);
+    });
+  }
+  function add(list) {
+    for (const f of list) {
+      if (!OK.includes(f.type)) { alert(f.name + ": use JPG, PNG, WEBP or GIF."); continue; }
+      if (f.size > MAX) { alert(f.name + " is over 5 MB. Export a smaller version."); continue; }
+      files.push(f);
+    }
+    sync();
+  }
+  drop.onclick = () => input.click();
+  drop.onkeydown = e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); input.click(); } };
+  input.onchange = () => { const picked = [...input.files]; files = files.concat([]); add(picked); };
+  ["dragenter", "dragover"].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add("over"); }));
+  ["dragleave", "drop"].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove("over"); }));
+  drop.addEventListener("drop", e => add(e.dataTransfer.files));
+  document.addEventListener("paste", e => { const imgs = [...(e.clipboardData?.files || [])].filter(f => f.type.startsWith("image/")); if (imgs.length) add(imgs); });
+  form.addEventListener("submit", e => {
+    if (!files.length) { e.preventDefault(); drop.style.borderColor = "#b91c1c"; drop.scrollIntoView({ behavior: "smooth", block: "center" }); return; }
+    go.disabled = true; go.textContent = "Starting…";
   });
+})();
 </script>
 {% endblock %}

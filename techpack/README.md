@@ -11,7 +11,9 @@ Each tech pack includes:
 5. **Construction**: every operation with ISO stitch and seam types and SPI
 6. **Artwork, labels, trims, wash, care, packaging and quality requirements**
 
-There is also an on-screen-only checklist of the **assumptions** Claude made and the **questions** you should answer before sending the pack to a factory.
+7. **Sampling, testing, packing and compliance**, plus a printed revision log.
+
+There is also an on-screen-only **Review** checklist of the assumptions Claude made and the questions you should answer before sending the pack to a factory (tick them off as you go).
 
 ## Setup
 
@@ -32,10 +34,10 @@ Then open http://localhost:8000.
 
 1. Upload one or more reference images. Front, back and detail close-ups all help.
 2. Fill in whatever you know: fabric, fit, sizes, colours, graphics, trims. Anything you leave blank, Claude infers and lists under "Assumptions".
-3. Click **Generate**. It takes about 1–4 minutes.
+3. Click **Generate**. It takes about 5–10 minutes and runs in the background: you can close the tab and find the pack on the home page later.
 4. Review the pack, especially the assumptions, questions and measurements.
-5. Use **Revise** to give feedback in plain English, e.g. "make the hood double-layer, 400gsm instead". Each revision is saved as a new version, and earlier versions are kept.
-6. Click **Print / Save PDF**. The print layout is A4 landscape, one section per page, and the assumptions page is left out.
+5. Use **Revise** (top bar) to give feedback in plain English, e.g. "make the hood double-layer, 400gsm instead". Each revision is saved as a new version, and earlier versions are kept.
+6. Click **Print / PDF**, or **Excel** for an editable copy factories can annotate. The print layout is A4 landscape, one section per page, and the review checklist is left out.
 
 Packs are saved in `packs/` at the repo root, one folder per style containing the reference images, every version as JSON, and the history.
 

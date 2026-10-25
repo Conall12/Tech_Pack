@@ -1,106 +1,95 @@
 {% extends "base.html" %}
-{% block title %}{{ pack.style_name }} – Tech Pack v{{ version }}{% endblock %}
-{% block head %}
-<style>
-  .toolbar { position: sticky; top:0; z-index:5; background:#fff; border-bottom:1px solid var(--line); padding:10px 16px; display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
-  .toolbar .spacer { flex:1; }
-  .sheet { background:#fff; border:1px solid var(--line); margin: 0 auto 24px; padding: 28px 32px; max-width: 1100px; }
-  .sheet-head { display:flex; justify-content:space-between; gap:16px; border-bottom: 3px solid var(--ink); padding-bottom:10px; margin-bottom:18px; font-size:12px; }
-  .sheet-head .title { font-size: 18px; font-weight: 700; }
-  .sheet-head .meta { text-align:right; color: var(--muted); }
-  .kv { display:grid; grid-template-columns: 130px 1fr; gap: 4px 12px; font-size: 13px; }
-  .kv dt { font-weight:600; color: var(--muted); } .kv dd { margin:0; }
-  .refs { display:flex; gap:10px; flex-wrap:wrap; }
-  .refs img { height: 200px; max-width: 100%; object-fit: contain; border:1px solid var(--line); background:#fafafa; }
-  .flats { display:grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-  .flats figure { margin:0; border:1px solid var(--line); padding: 10px; text-align:center; }
-  .flats img { width:100%; max-height: 520px; object-fit: contain; }
-  .flats figcaption { font-weight:700; font-size: 12px; text-transform: uppercase; letter-spacing:.08em; margin-top:6px; }
-  .two { display:grid; grid-template-columns: 1fr 1fr; gap: 24px; }
-  ul.tight { margin: 0; padding-left: 18px; } ul.tight li { margin-bottom: 4px; }
-  .section { margin-bottom: 22px; }
-  .flag { background:#fff8e1; border:1px solid #f0d68a; padding: 12px 16px; }
-  td.num { text-align:center; white-space:nowrap; }
-  th.base, td.base { background:#eef3fa; font-weight: 700; }
-  .revise textarea { min-height: 90px; }
-  @media (max-width: 760px) { .flats, .two { grid-template-columns: 1fr; } .sheet { padding: 18px 14px; } .table-scroll { overflow-x:auto; } }
-  @media print {
-    @page { size: A4 landscape; margin: 10mm; }
-    body { background:#fff; }
-    .no-print { display:none !important; }
-    .sheet { border:0; padding:0; margin:0; max-width:none; page-break-after: always; }
-    .sheet:last-of-type { page-break-after: auto; }
-    tr, figure, .flag { page-break-inside: avoid; }
-    .flats img { max-height: 150mm; }
-    .refs img { height: 60mm; }
-  }
-</style>
-{% endblock %}
+{% block title %}{{ pack.style_name }} · v{{ version }}{% endblock %}
 
 {% macro head(title, page) -%}
 <div class="sheet-head">
-  <div><div class="title">{{ pack.style_name }}</div><div>{{ title }}</div></div>
-  <div class="meta">Style #{{ pack.style_number }} · {{ pack.season }}<br>Version {{ version }} · Page {{ page }}</div>
+  <div><div class="title">{{ pack.style_name }}</div><div class="sub">{{ title }}</div></div>
+  <div class="meta">Style #{{ pack.style_number|short }} · {{ pack.season }}<br>Version {{ version }} · Page {{ page }} of 7</div>
 </div>
 {%- endmacro %}
 
 {% block body %}
-<div class="toolbar no-print">
-  <a href="/">← All packs</a>
-  <span class="spacer"></span>
-  <label style="display:inline;margin:0">Version
-    <select onchange="location.href='?v='+this.value" style="width:auto">
-      {% for ver in versions|reverse %}<option value="{{ ver }}" {% if ver == version %}selected{% endif %}>v{{ ver }}{% if ver == latest %} (latest){% endif %}</option>{% endfor %}
+{% set busy = status in ["revising", "generating"] %}
+
+<header class="topbar no-print">
+  <div class="container row">
+    <a class="brand" href="/" title="All packs"><i></i><span class="lbl">Packs</span></a>
+    <span class="muted">/</span>
+    <div class="title-block">
+      <div class="t">{{ pack.style_name }}</div>
+      <div class="s">{{ pack.style_number|short }}{% if pack.season %} · {{ pack.season }}{% endif %}</div>
+    </div>
+    <span class="spacer"></span>
+    <select class="ver" aria-label="Version" onchange="location.href='?v='+this.value">
+      {% for ver in versions|reverse %}<option value="{{ ver }}" {% if ver == version %}selected{% endif %}>v{{ ver }}{% if ver == latest %} · latest{% endif %}</option>{% endfor %}
     </select>
-  </label>
-  <a class="btn secondary" href="/packs/{{ pack_id }}/json?v={{ version }}" download="{{ pack_id }}-v{{ version }}.json">JSON</a>
-  <a class="btn secondary" href="/packs/{{ pack_id }}/xlsx?v={{ version }}">Excel (editable)</a>
-  <button onclick="window.print()">Print / Save PDF</button>
-</div>
+    <button class="btn" type="button" id="open-revise" {% if busy %}disabled{% endif %}>Revise</button>
+    <a class="btn" href="/packs/{{ pack_id }}/xlsx?v={{ version }}" title="Editable Excel for the factory">Excel</a>
+    <button class="btn primary" type="button" onclick="window.print()">Print / PDF</button>
+    <details class="menu">
+      <summary class="btn ghost" aria-label="More">⋯</summary>
+      <div class="pop">
+        <a href="/packs/{{ pack_id }}/json?v={{ version }}" download="{{ pack_id }}-v{{ version }}.json">Download JSON</a>
+        <form action="/packs/{{ pack_id }}/delete" method="post" onsubmit="return confirm('Delete this tech pack and all its versions?')">
+          <button class="danger" type="submit">Delete pack…</button>
+        </form>
+      </div>
+    </details>
+  </div>
+  <nav class="subnav" aria-label="Sections">
+    <div class="container row" id="nav">
+      <a href="#overview">Overview</a><a href="#flats">Flats</a><a href="#materials">Materials</a>
+      <a href="#measurements">Measurements</a><a href="#construction">Construction</a>
+      <a href="#details">Artwork &amp; labels</a><a href="#factory">Factory</a><a href="#review">Review</a>
+    </div>
+  </nav>
+</header>
 
-<div class="wrap" style="padding-top:16px">
-  {% if error %}<div class="error no-print">{{ error }}</div>{% endif %}
+<main class="container sheets">
+  {% if busy %}
+  <div class="banner info no-print"><div class="spinner"></div>
+    <div><strong>Revising this pack…</strong> <span class="muted" id="elapsed"></span><div class="hint" style="margin:0">A new version will appear here when it's ready. You can keep reading v{{ version }}.</div></div>
+  </div>
+  {% endif %}
+  {% if error %}
+  <div class="banner error no-print" role="alert"><div>{{ error }}</div><span class="spacer"></span>
+    <form action="/packs/{{ pack_id }}/dismiss" method="post"><button class="btn ghost" type="submit">Dismiss</button></form></div>
+  {% endif %}
+  {% if version != latest %}
+  <div class="banner info no-print">You're viewing an older version (v{{ version }}).<span class="spacer"></span><a class="btn" href="?v={{ latest }}">Go to latest</a></div>
+  {% endif %}
 
-  <form class="panel revise no-print" action="/packs/{{ pack_id }}/revise" method="post" data-loading="Revising tech pack…">
-    <h2>Revise this pack</h2>
-    <input type="hidden" name="v" value="{{ version }}">
-    <textarea name="feedback" required placeholder="e.g. Make the hood double-layer, change the body fabric to 400gsm, add a 4cm side split at the hem, sizes S–XXL only…"></textarea>
-    <div style="margin-top:10px"><button type="submit">Create v{{ latest + 1 }}</button> <span class="hint">Saved as a new version. Earlier versions stay available.</span></div>
-  </form>
-
-  <!-- 1. Cover -->
-  <section class="sheet">
+  <!-- 1. Overview -->
+  <section class="sheet" id="overview">
     {{ head("Cover & design overview", 1) }}
     <div class="two">
       <div>
+        {% set b = brief or {} %}
         <dl class="kv">
-          <dt>Style name</dt><dd>{{ pack.style_name }}</dd>
-          <dt>Style number</dt><dd>{{ pack.style_number }}</dd>
+          <dt>Style</dt><dd>{{ pack.style_name }} ({{ pack.style_number|short }})</dd>
+          {% if b.brand %}<dt>Brand</dt><dd>{{ b.brand }}</dd>{% endif %}
+          {% if b.factory_or_supplier %}<dt>Factory</dt><dd>{{ b.factory_or_supplier }}</dd>{% endif %}
           <dt>Season</dt><dd>{{ pack.season }}</dd>
           <dt>Category</dt><dd>{{ pack.category }}</dd>
           <dt>Fit</dt><dd>{{ pack.gender_fit }}</dd>
           <dt>Sizes</dt><dd>{{ pack.sizes|join(", ") }} (base {{ pack.base_size }})</dd>
-          {% set b = meta.brief or {} %}
-          {% if b.brand %}<dt>Brand</dt><dd>{{ b.brand }}</dd>{% endif %}
-          {% if b.factory_or_supplier %}<dt>Factory</dt><dd>{{ b.factory_or_supplier }}</dd>{% endif %}
+          <dt>Units</dt><dd>{{ pack.units }}</dd>
           {% if b.sample_stage %}<dt>Sample stage</dt><dd>{{ b.sample_stage }}</dd>{% endif %}
           {% if b.order_quantity %}<dt>Order qty</dt><dd>{{ b.order_quantity }}</dd>{% endif %}
           {% if b.target_delivery %}<dt>Delivery</dt><dd>{{ b.target_delivery }}</dd>{% endif %}
           {% if pack.country_of_origin %}<dt>Origin label</dt><dd>{{ pack.country_of_origin }}</dd>{% endif %}
-          <dt>Units</dt><dd>{{ pack.units }}</dd>
-          <dt>Date</dt><dd>{{ meta.history[version-1].at if meta.history|length >= version else meta.created }}</dd>
         </dl>
         <p style="margin-top:16px">{{ pack.summary }}</p>
-        <h2 style="margin-top:16px">Key design details</h2>
+        <h2 style="margin-top:20px">Key design details</h2>
         <ul class="tight">{% for d in pack.key_design_details %}<li>{{ d }}</li>{% endfor %}</ul>
-        {% if pack.fit_notes %}<h2 style="margin-top:16px">Fit notes</h2>
+        {% if pack.fit_notes %}<h2 style="margin-top:20px">Fit notes</h2>
         <ul class="tight">{% for d in pack.fit_notes %}<li>{{ d }}</li>{% endfor %}</ul>{% endif %}
       </div>
       <div>
         <h2>Reference images</h2>
         <div class="refs">{% for img in images %}<img src="/packs/{{ pack_id }}/images/{{ img }}" alt="Reference {{ loop.index }}">{% endfor %}</div>
         {% if meta.history %}
-        <h2 style="margin-top:16px">Revision log</h2>
+        <h2 style="margin-top:20px">Revision log</h2>
         <table>
           <tr><th>Ver.</th><th>Date</th><th>Change</th></tr>
           {% for h in meta.history if h.version <= version %}<tr><td class="num">v{{ h.version }}</td><td>{{ h.at }}</td><td>{{ h.note }}</td></tr>{% endfor %}
@@ -112,73 +101,75 @@
   </section>
 
   <!-- 2. Flats -->
-  <section class="sheet">
+  <section class="sheet" id="flats">
     {{ head("Technical flats", 2) }}
     <div class="flats">
       <figure><img src="{{ pack.front_flat_svg|svg_uri }}" alt="Front flat"><figcaption>Front</figcaption></figure>
       <figure><img src="{{ pack.back_flat_svg|svg_uri }}" alt="Back flat"><figcaption>Back</figcaption></figure>
     </div>
-    <div class="table-scroll" style="margin-top:16px">
-    <table>
-      <tr><th style="width:40px">#</th><th style="width:200px">Detail</th><th>Description</th></tr>
-      {% for c in pack.callouts %}<tr><td class="num">{{ c.number }}</td><td>{{ c.label }}</td><td>{{ c.description }}</td></tr>{% endfor %}
-    </table>
+    <div class="table-scroll" style="margin-top:18px">
+      <table>
+        <tr><th style="width:44px">#</th><th style="width:210px">Detail</th><th>Description</th></tr>
+        {% for c in pack.callouts %}<tr><td class="num">{{ c.number }}</td><td>{{ c.label }}</td><td>{{ c.description }}</td></tr>{% endfor %}
+      </table>
     </div>
   </section>
 
-  <!-- 3. BOM + colourways -->
-  <section class="sheet">
+  <!-- 3. Materials -->
+  <section class="sheet" id="materials">
     {{ head("Bill of materials & colourways", 3) }}
     <div class="table-scroll section">
-    <table>
-      <tr><th>Component</th><th>Material</th><th>Composition</th><th>Weight / size</th><th>Colour</th><th>Pantone</th><th>Placement</th><th>Qty</th><th>Notes</th></tr>
-      {% for b in pack.bill_of_materials %}
-      <tr><td><strong>{{ b.component }}</strong></td><td>{{ b.material }}</td><td>{{ b.composition }}</td><td>{{ b.weight_or_size }}</td><td>{{ b.color }}</td><td>{{ b.pantone }}</td><td>{{ b.placement }}</td><td>{{ b.quantity }}</td><td>{{ b.notes }}</td></tr>
-      {% endfor %}
-    </table>
+      <table>
+        <tr><th>Component</th><th>Material</th><th>Composition</th><th>Weight / size</th><th>Colour</th><th>Pantone</th><th>Placement</th><th>Qty</th><th>Notes</th></tr>
+        {% for b in pack.bill_of_materials %}
+        <tr><td><strong>{{ b.component }}</strong></td><td>{{ b.material }}</td><td>{{ b.composition }}</td><td>{{ b.weight_or_size }}</td><td>{{ b.color }}</td><td>{{ b.pantone }}</td><td>{{ b.placement }}</td><td>{{ b.quantity }}</td><td>{{ b.notes }}</td></tr>
+        {% endfor %}
+      </table>
     </div>
-    <h2>Colourways</h2>
-    <table>
-      <tr><th>Colourway</th><th>Pantone (approx.)</th><th>Applies to</th></tr>
-      {% for c in pack.colorways %}<tr><td>{{ c.name }}</td><td>{{ c.pantone }}</td><td>{{ c.applies_to }}</td></tr>{% endfor %}
-    </table>
+    <div class="section">
+      <h2>Colourways</h2>
+      <table>
+        <tr><th>Colourway</th><th>Pantone (approx.)</th><th>Applies to</th></tr>
+        {% for c in pack.colorways %}<tr><td>{{ c.name }}</td><td>{{ c.pantone }}</td><td>{{ c.applies_to }}</td></tr>{% endfor %}
+      </table>
+    </div>
   </section>
 
   <!-- 4. Measurements -->
-  <section class="sheet">
+  <section class="sheet" id="measurements">
     {{ head("Points of measure & grading (" ~ pack.units ~ ")", 4) }}
     <div class="table-scroll">
-    <table>
-      <tr><th style="width:40px">Code</th><th>Point of measure</th><th>Tol ±</th><th>Grade</th>
-        {% for s in pack.sizes %}<th class="num {% if s == pack.base_size %}base{% endif %}">{{ s }}</th>{% endfor %}</tr>
-      {% for m in pack.measurements %}
-      <tr><td class="num"><strong>{{ m.code }}</strong></td><td>{{ m.description }}</td><td class="num">{{ m.tolerance }}</td><td class="num">{{ m["values"]|grade }}</td>
-        {% for s in pack.sizes %}<td class="num {% if s == pack.base_size %}base{% endif %}">{{ m["values"][loop.index0] if loop.index0 < m["values"]|length else "–" }}</td>{% endfor %}</tr>
-      {% endfor %}
-    </table>
+      <table>
+        <tr><th class="num" style="width:44px">Code</th><th>Point of measure</th><th class="num">Tol ±</th><th class="num">Grade</th>
+          {% for s in pack.sizes %}<th class="num {% if s == pack.base_size %}base{% endif %}">{{ s }}</th>{% endfor %}</tr>
+        {% for m in pack.measurements %}
+        <tr><td class="num"><strong>{{ m.code }}</strong></td><td>{{ m.description }}</td><td class="num">{{ m.tolerance }}</td><td class="num">{{ m["values"]|grade }}</td>
+          {% for s in pack.sizes %}<td class="num {% if s == pack.base_size %}base{% endif %}">{{ m["values"][loop.index0] if loop.index0 < m["values"]|length else "–" }}</td>{% endfor %}</tr>
+        {% endfor %}
+      </table>
     </div>
-    <p class="hint">Garment measured flat, after wash. Highlighted column is the base sample size.</p>
+    <p class="hint">Garment measured flat, after wash. The highlighted column is the base sample size.</p>
   </section>
 
   <!-- 5. Construction -->
-  <section class="sheet">
+  <section class="sheet" id="construction">
     {{ head("Construction details", 5) }}
     <div class="table-scroll">
-    <table>
-      <tr><th>Area</th><th>Operation</th><th>Stitch type</th><th>Seam type</th><th>SPI</th><th>Seam allow.</th><th>Callout</th><th>Notes</th></tr>
-      {% for c in pack.construction %}
-      <tr><td><strong>{{ c.area }}</strong></td><td>{{ c.operation }}</td><td>{{ c.stitch_type }}</td><td>{{ c.seam_type }}</td><td class="num">{{ c.spi }}</td><td class="num">{{ c.seam_allowance }}</td><td class="num">{{ c.callout_ref }}</td><td>{{ c.notes }}</td></tr>
-      {% endfor %}
-    </table>
+      <table>
+        <tr><th>Area</th><th>Operation</th><th>Stitch type</th><th>Seam type</th><th class="num">SPI</th><th class="num">Seam allow.</th><th class="num">Callout</th><th>Notes</th></tr>
+        {% for c in pack.construction %}
+        <tr><td><strong>{{ c.area }}</strong></td><td>{{ c.operation }}</td><td>{{ c.stitch_type }}</td><td>{{ c.seam_type }}</td><td class="num">{{ c.spi }}</td><td class="num">{{ c.seam_allowance }}</td><td class="num">{{ c.callout_ref }}</td><td>{{ c.notes }}</td></tr>
+        {% endfor %}
+      </table>
     </div>
   </section>
 
   <!-- 6. Artwork, labels, finishing -->
-  <section class="sheet">
+  <section class="sheet" id="details">
     {{ head("Artwork, labels & finishing", 6) }}
     {% if pack.artwork %}
     <div class="section table-scroll">
-      <h2>Artwork & graphics</h2>
+      <h2>Artwork &amp; graphics</h2>
       <table>
         <tr><th>Artwork</th><th>Technique</th><th>Size</th><th>Placement</th><th>Colours</th><th>Notes</th></tr>
         {% for a in pack.artwork %}<tr><td><strong>{{ a.name }}</strong></td><td>{{ a.technique }}</td><td>{{ a.size }}</td><td>{{ a.placement }}</td><td>{{ a.colors }}</td><td>{{ a.notes }}</td></tr>{% endfor %}
@@ -186,26 +177,26 @@
     </div>
     {% endif %}
     <div class="section table-scroll">
-      <h2>Labels & trims</h2>
+      <h2>Labels &amp; trims</h2>
       <table>
         <tr><th>Item</th><th>Specification</th><th>Size</th><th>Content</th><th>Placement</th></tr>
         {% for l in pack.labels_and_trims %}<tr><td><strong>{{ l.item }}</strong></td><td>{{ l.spec }}</td><td>{{ l.size }}</td><td>{{ l.content }}</td><td>{{ l.placement }}</td></tr>{% endfor %}
       </table>
     </div>
-    <div class="two">
+    <div class="section two">
       <div>
-        <h2>Wash & finishing</h2><p>{{ pack.wash_and_finishing }}</p>
-        <h2>Care instructions</h2><ul class="tight">{% for c in pack.care_instructions %}<li>{{ c }}</li>{% endfor %}</ul>
+        <h2>Wash &amp; finishing</h2><p>{{ pack.wash_and_finishing }}</p>
+        <h2 style="margin-top:18px">Care instructions</h2><ul class="tight">{% for c in pack.care_instructions %}<li>{{ c }}</li>{% endfor %}</ul>
       </div>
       <div>
         <h2>Packaging</h2><p>{{ pack.packaging }}</p>
-        <h2>Quality requirements</h2><ul class="tight">{% for q in pack.quality_requirements %}<li>{{ q }}</li>{% endfor %}</ul>
+        <h2 style="margin-top:18px">Quality requirements</h2><ul class="tight">{% for q in pack.quality_requirements %}<li>{{ q }}</li>{% endfor %}</ul>
       </div>
     </div>
   </section>
 
-  <!-- 7. Sampling, testing, packing, compliance -->
-  <section class="sheet">
+  <!-- 7. Factory: sampling, testing, packing, compliance -->
+  <section class="sheet" id="factory">
     {{ head("Sampling, testing, packing & compliance", 7) }}
     <div class="two">
       <div>
@@ -234,19 +225,96 @@
     </div>
   </section>
 
-  <!-- Internal review: not printed -->
-  <section class="sheet no-print">
-    <div class="flag">
-      <p><strong>Check these before sending to a factory.</strong> This page doesn't print.</p>
-      <div class="two">
-        <div><h2>Assumptions made</h2><ul class="tight">{% for a in pack.assumptions %}<li>{{ a }}</li>{% endfor %}</ul></div>
-        <div><h2>Questions for you</h2><ul class="tight">{% for q in pack.questions_for_designer %}<li>{{ q }}</li>{% endfor %}</ul></div>
+  <!-- Review: not printed -->
+  <section class="sheet review no-print" id="review">
+    <div style="display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap">
+      <h1 style="font-size:20px">Before you send this to a factory</h1>
+      <span class="muted" id="count"></span>
+    </div>
+    <p class="muted" style="margin-top:4px">This page isn't printed. Tick each question off as you resolve it. If an answer changes the pack, use Revise.</p>
+    <div class="progress"><i id="bar"></i></div>
+    <div class="two" style="margin-top:8px">
+      <div>
+        <h2>Questions for you</h2>
+        <div id="checks">{% for q in pack.questions_for_designer %}<label class="check"><input type="checkbox"><span>{{ q }}</span></label>{% endfor %}</div>
+        {% if not pack.questions_for_designer %}<p class="muted">No open questions.</p>{% endif %}
+      </div>
+      <div>
+        <h2>Assumptions made</h2>
+        <ul class="tight">{% for a in pack.assumptions %}<li>{{ a }}</li>{% endfor %}</ul>
       </div>
     </div>
-    {% if meta.history %}
-    <h2 style="margin-top:20px">Version history</h2>
-    <table>{% for h in meta.history|reverse %}<tr><td class="num"><a href="?v={{ h.version }}">v{{ h.version }}</a></td><td>{{ h.at }}</td><td>{{ h.note }}</td></tr>{% endfor %}</table>
-    {% endif %}
   </section>
-</div>
+</main>
+
+<!-- Revise drawer -->
+<div class="scrim no-print" id="scrim"></div>
+<aside class="drawer no-print" id="drawer" aria-label="Revise this pack" aria-hidden="true">
+  <div style="display:flex;align-items:center"><h1 style="font-size:20px">Revise</h1><span class="spacer"></span><button class="btn ghost" type="button" id="close-revise" aria-label="Close">✕</button></div>
+  <p class="muted">Describe the changes in plain English. Everything affected (materials, measurements, construction, flats) is updated, and it's saved as <strong>v{{ latest + 1 }}</strong>. Earlier versions stay available.</p>
+  <form action="/packs/{{ pack_id }}/revise" method="post" style="display:flex;flex-direction:column;gap:12px;flex:1">
+    <input type="hidden" name="v" value="{{ version }}">
+    <textarea name="feedback" id="feedback" required style="min-height:160px" placeholder="e.g. Make the hood double-layer, change the body fabric to 400gsm…"></textarea>
+    <div class="chips">
+      <button type="button" class="chip" data-t="Change the main fabric to ">Change fabric</button>
+      <button type="button" class="chip" data-t="Add a pocket: ">Add a pocket</button>
+      <button type="button" class="chip" data-t="Change the size range to ">Size range</button>
+      <button type="button" class="chip" data-t="Make the fit more ">Change fit</button>
+      <button type="button" class="chip" data-t="Change the colour to ">Colour</button>
+      <button type="button" class="chip" data-t="Answer to your question: ">Answer a question</button>
+    </div>
+    <div class="hint">Based on v{{ version }}. Takes about 5–10 minutes.</div>
+    <div class="spacer"></div>
+    <button class="btn primary lg" type="submit">Create v{{ latest + 1 }}</button>
+  </form>
+</aside>
+
+<script>
+(() => {
+  const body = document.body, fb = document.getElementById("feedback");
+  const open = () => { body.classList.add("drawer-open"); document.getElementById("drawer").setAttribute("aria-hidden", "false"); setTimeout(() => fb.focus(), 220); };
+  const close = () => { body.classList.remove("drawer-open"); document.getElementById("drawer").setAttribute("aria-hidden", "true"); };
+  document.getElementById("open-revise").onclick = open;
+  document.getElementById("close-revise").onclick = close;
+  document.getElementById("scrim").onclick = close;
+  document.addEventListener("keydown", e => { if (e.key === "Escape") close(); });
+  document.querySelectorAll(".chip").forEach(c => c.onclick = () => { fb.value = (fb.value ? fb.value + "\n" : "") + c.dataset.t; fb.focus(); });
+
+  // close the ⋯ menu when clicking elsewhere
+  document.addEventListener("click", e => { const m = document.querySelector("details.menu"); if (m && !m.contains(e.target)) m.removeAttribute("open"); });
+
+  // scroll-spy for the section nav
+  const links = [...document.querySelectorAll("#nav a")];
+  const io = new IntersectionObserver(entries => {
+    entries.forEach(en => { if (en.isIntersecting) links.forEach(a => a.classList.toggle("on", a.getAttribute("href") === "#" + en.target.id)); });
+  }, { rootMargin: "-30% 0px -60% 0px" });
+  links.forEach(a => { const s = document.querySelector(a.getAttribute("href")); if (s) io.observe(s); });
+
+  // review checklist, remembered per pack in this browser
+  const hash = s => { let h = 0; for (const c of s) h = (h * 31 + c.charCodeAt(0)) | 0; return h; };
+  const boxes = [...document.querySelectorAll("#checks .check")];
+  const store = { get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }, set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} } };
+  function paint() {
+    const done = boxes.filter(b => b.querySelector("input").checked).length;
+    document.getElementById("count").textContent = boxes.length ? done + " of " + boxes.length + " resolved" : "";
+    document.getElementById("bar").style.width = boxes.length ? (100 * done / boxes.length) + "%" : "0";
+    boxes.forEach(b => b.classList.toggle("done", b.querySelector("input").checked));
+  }
+  boxes.forEach(b => {
+    const key = "tp:{{ pack_id }}:" + hash(b.querySelector("span").textContent), input = b.querySelector("input");
+    input.checked = store.get(key) === "1";
+    input.onchange = () => { store.set(key, input.checked ? "1" : "0"); paint(); };
+  });
+  paint();
+
+  {% if busy %}
+  const started = {{ (meta.started or 0) * 1000 }} || Date.now(), el = document.getElementById("elapsed");
+  const tick = () => { const s = Math.max(0, Math.floor((Date.now() - started) / 1000)); el.textContent = "· " + Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0"); };
+  tick(); setInterval(tick, 1000);
+  setInterval(async () => {
+    try { const r = await (await fetch("/packs/{{ pack_id }}/status", { cache: "no-store" })).json(); if (r.status !== "revising") location.href = "/packs/{{ pack_id }}"; } catch (e) {}
+  }, 4000);
+  {% endif %}
+})();
+</script>
 {% endblock %}
