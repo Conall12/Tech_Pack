@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block body %}
+<div class="wrap">
+  <h1>Tech Pack Generator</h1>
+  <p class="muted">Upload your reference images, describe the garment and get a factory-ready tech pack.</p>
+
+  {% if error %}<div class="error">{{ error }}</div>{% endif %}
+
+  <form class="panel" action="/generate" method="post" enctype="multipart/form-data" data-loading="Generating tech pack…">
+    <h2>1. Reference images</h2>
+    <input type="file" name="images" accept="image/jpeg,image/png,image/webp,image/gif" multiple required>
+    <div class="hint">Front, back and close-ups of details all help. Max 5 MB each.</div>
+    <div id="previews" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px"></div>
+
+    <h2 style="margin-top:24px">2. The garment</h2>
+    <div class="grid">
+      <div><label>Style name</label><input type="text" name="style_name" placeholder="e.g. Heavyweight Boxy Hoodie"></div>
+      <div><label>Category</label><input type="text" name="category" placeholder="e.g. Hoodie, tee, cargo pant"></div>
+      <div><label>Season / drop</label><input type="text" name="season" placeholder="e.g. SS27"></div>
+      <div><label>Fit</label><input type="text" name="fit" placeholder="e.g. Oversized, boxy, cropped, dropped shoulder"></div>
+      <div><label>Fabric</label><input type="text" name="fabric" placeholder="e.g. 450gsm brushed cotton fleece"></div>
+      <div><label>Colours</label><input type="text" name="colors" placeholder="e.g. Washed black, bone"></div>
+      <div><label>Sizes</label><input type="text" name="sizes" value="XS, S, M, L, XL"></div>
+      <div><label>Units</label><select name="units"><option value="cm">cm</option><option value="in">inches</option></select></div>
+      <div><label>Target cost per unit</label><input type="text" name="target_price" placeholder="optional"></div>
+      <div class="full"><label>Graphics / artwork</label><textarea name="graphics" placeholder="Prints, embroidery, puff, placement, size…"></textarea></div>
+      <div class="full"><label>Trims &amp; hardware</label><textarea name="trims" placeholder="Zips, drawcords, aglets, eyelets, labels, woven tabs…"></textarea></div>
+      <div class="full"><label>Anything else the factory needs to know</label><textarea name="notes" placeholder="Wash effects, construction preferences, things the AI image got wrong…"></textarea></div>
+    </div>
+    <div style="margin-top:20px"><button type="submit">Generate tech pack</button></div>
+  </form>
+
+  {% if packs %}
+  <div class="panel">
+    <h2>Your tech packs</h2>
+    <table>
+      <tr><th>Style</th><th>Created</th><th>Versions</th></tr>
+      {% for p in packs %}
+      <tr><td><a href="/packs/{{ p.id }}">{{ p.name }}</a></td><td>{{ p.created }}</td><td>{{ p.versions }}</td></tr>
+      {% endfor %}
+    </table>
+  </div>
+  {% endif %}
+</div>
+<script>
+  document.querySelector("input[name=images]").addEventListener("change", e => {
+    const box = document.getElementById("previews"); box.innerHTML = "";
+    [...e.target.files].forEach(f => { const i = new Image(); i.src = URL.createObjectURL(f); i.style.cssText = "height:110px;border:1px solid #ccc"; box.appendChild(i); });
+  });
+</script>
+{% endblock %}
