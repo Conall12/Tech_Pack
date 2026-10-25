@@ -15,13 +15,14 @@ There is also an on-screen-only checklist of the **assumptions** Claude made and
 
 ## Setup
 
-You need Python 3.10+ and an Anthropic API key from https://console.anthropic.com/.
+You need Python 3.10+ and **either** Claude Code (logged in, uses your Claude subscription, no API credits) **or** an Anthropic API key with credits.
 
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate            # Windows: .venv\Scripts\activate
 pip install -r requirements.txt   # run from the repo root
-export ANTHROPIC_API_KEY=sk-ant-...  # Windows: set ANTHROPIC_API_KEY=sk-ant-...
+# only needed for TECHPACK_BACKEND=api:
+# export ANTHROPIC_API_KEY=sk-ant-...
 uvicorn techpack.app:app --port 8000
 ```
 
@@ -42,7 +43,10 @@ Packs are saved in `packs/` at the repo root, one folder per style containing th
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `TECHPACK_MODEL` | `claude-opus-5-5` | Model used |
+| `TECHPACK_BACKEND` | `claude-code` | `claude-code` runs the local `claude` CLI on your subscription; `api` calls the Anthropic API |
+| `TECHPACK_CLI_MODEL` | CLI default | Model for the `claude-code` backend |
+| `TECHPACK_CLI_TIMEOUT` | `900` | Seconds before the CLI run is abandoned |
+| `TECHPACK_MODEL` | `claude-opus-5-5` | Model used by the `api` backend |
 | `TECHPACK_EFFORT` | `high` | `medium` is faster and cheaper; `xhigh` is more thorough |
 | `TECHPACK_DATA` | `./packs` | Where packs are stored |
 
