@@ -38,9 +38,7 @@ SPI, rib types, print techniques, trim specs.
 - Measurements: base them on standard commercial grading for the category and fit, then adjust for the \
 silhouette you see. Give every size requested. Use realistic tolerances.
 - Construction: cover every seam and operation in sewing order.
-- Technical flats: draw clean, symmetrical, factory-style flat sketches as SVG line art. Front and back \
-must match in proportions and seam placement. Mark topstitching with dashed lines. Put numbered circle \
-callouts on key details, and describe each in the callouts list.
+- Technical flats: do NOT draw SVG for tops (tees, sweatshirts, hoodies, jackets, shirts) or bottoms (trousers, joggers, shorts). The app draws those to scale from your measurements. Instead fill flat_spec precisely: pick the template, the real sleeve style, neckline, closure, hem, cuffs, pockets and panel seams you see, and map each dimension role to the code of the measurement-table row that holds it (use flat half-widths and lengths for the base size, never circumferences; prefer sleeve_inseam over sleeve_length; never map a centre-back sleeve length). Make sure the measurement table actually contains those rows. Set an anchor on every callout that describes a visible feature so the app can place it on the drawing. Only for template 'other' (dress, skirt, bag, cap...) draw the SVG flats yourself: clean, symmetrical, front and back matching, dashed topstitching, numbered circle callouts. Leave front_flat_svg and back_flat_svg empty strings for top and bottom.
 - Factories sample from the pack alone, so leave nothing for them to guess. Every BOM line needs a \
 colour name AND a Pantone TCX reference (thread, zip tape, labels, polybag and interlining included, \
 not just the shell fabric). Include thread, interlining/fusing, labels, hangtags and packaging items \

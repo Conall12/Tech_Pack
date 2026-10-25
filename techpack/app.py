@@ -25,6 +25,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from .export import build_xlsx, grade_steps
+from .flats import render_flats
 from pydantic import ValidationError
 
 from .generator import GenerationError, ReferenceImage, generate, load_image, revise
@@ -262,8 +263,11 @@ def view_pack(request: Request, pack_id: str, v: int = 0):
         return templates.TemplateResponse(request, "pending.html", ctx)
     version = v if v in versions else versions[-1]
     pack = TechPack.model_validate_json((pack_dir / f"v{version}.json").read_text())
-    checks = check_pack(pack.model_dump())
-    ctx.update({
+    data = pack.model_dump()
+    checks = check_pack(data)
+    drawn = render_flats(data)
+    flats = {k: svg_data_uri(drawn[k]) for k in ("front", "back", "front_pom", "back_pom")} if drawn else None
+    ctx.update({"flats": flats, "flats_drawn": bool(drawn),
         "pack": pack, "version": version, "versions": versions, "latest": versions[-1], "brief": meta.get("brief", {}),
         "checks": checks, "open_checks": len(checks), "has_browser": _browser() is not None,
     })

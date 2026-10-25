@@ -122,17 +122,28 @@
   <!-- 2. Flats -->
   <section class="sheet" id="flats">
     {{ head("Technical flats", 2) }}
+    {% if flats %}
+    <div class="no-print flat-tools">
+      <label class="switch"><input type="checkbox" id="pom-toggle" checked><span>Show measurement markers</span></label>
+      <span class="hint" style="margin:0">Drawn to scale from the measurement table (size {{ pack.base_size }}). Red letters are the measurement codes.</span>
+    </div>
+    <div class="flats pom-on" id="flat-figs">
+      <figure><img class="with-pom" src="{{ flats.front_pom }}" alt="Front flat with measurement markers"><img class="no-pom" src="{{ flats.front }}" alt="Front flat"><figcaption>Front</figcaption></figure>
+      <figure><img class="with-pom" src="{{ flats.back_pom }}" alt="Back flat with measurement markers"><img class="no-pom" src="{{ flats.back }}" alt="Back flat"><figcaption>Back</figcaption></figure>
+    </div>
+    {% else %}
     <div class="flats">
       <figure><img src="{{ pack.front_flat_svg|svg_uri }}" alt="Front flat"><figcaption>Front</figcaption></figure>
       <figure><img src="{{ pack.back_flat_svg|svg_uri }}" alt="Back flat"><figcaption>Back</figcaption></figure>
     </div>
+    {% endif %}
     <div class="table-scroll" style="margin-top:18px">
       <table>
-        <tr><th style="width:44px">#</th><th style="width:210px">Detail</th><th>Description</th></tr>
-        {% for c in pack.callouts %}{% set i = loop.index0 %}<tr><td class="num">{{ c.number }}</td><td>{{ e("callouts.%d.label"|format(i), c.label) }}</td><td>{{ e("callouts.%d.description"|format(i), c.description) }}</td></tr>{% endfor %}
+        <tr><th style="width:44px">#</th><th style="width:210px">Detail</th><th>Description</th>{% if flats %}<th class="no-print" style="width:120px">Drawn at</th>{% endif %}</tr>
+        {% for c in pack.callouts %}{% set i = loop.index0 %}<tr><td class="num">{{ c.number }}</td><td>{{ e("callouts.%d.label"|format(i), c.label) }}</td><td>{{ e("callouts.%d.description"|format(i), c.description) }}</td>{% if flats %}<td class="no-print muted">{{ e("callouts.%d.anchor"|format(i), c.anchor) }}</td>{% endif %}</tr>{% endfor %}
       </table>
     </div>
-    <p class="hint no-print">The drawings are AI-generated line art. To change them, use Revise; have them redrawn in CAD if a factory needs exact patterns.</p>
+    <p class="hint no-print">{% if flats %}Edit a measurement and the drawing updates in the next version. To change features (pockets, hem, hood), use Revise.{% else %}These drawings are AI-generated line art for this garment type. Use Revise to change them, or have them redrawn in CAD.{% endif %}</p>
   </section>
 
   <!-- 3. Materials -->
@@ -332,6 +343,15 @@
   menus.forEach(m => m.addEventListener("toggle", () => { if (m.open) menus.filter(o => o !== m).forEach(o => o.removeAttribute("open")); }));
   document.addEventListener("click", e => menus.forEach(m => { if (!m.contains(e.target)) m.removeAttribute("open"); }));
   document.querySelectorAll("[data-wait]").forEach(a => a.addEventListener("click", () => { toast(a.dataset.wait + " This can take up to 20 seconds.", 20000); menus.forEach(m => m.removeAttribute("open")); }));
+
+  // ---- measurement markers on/off (remembered)
+  const pomBox = $("pom-toggle"), figs = $("flat-figs");
+  if (pomBox && figs) {
+    const apply = () => { figs.classList.toggle("pom-on", pomBox.checked); figs.classList.toggle("pom-off", !pomBox.checked); };
+    pomBox.checked = store.get("selvedge-pom") !== "0";
+    pomBox.onchange = () => { store.set("selvedge-pom", pomBox.checked ? "1" : "0"); apply(); };
+    apply();
+  }
 
   // ---- scroll-spy
   const links = [...document.querySelectorAll("#nav a")];

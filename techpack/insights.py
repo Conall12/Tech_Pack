@@ -3,10 +3,12 @@
 import re
 from typing import Any, Dict, List
 
+from .flats import render_flats
+
 SECTION_LABELS = {
     "style_name": "Cover", "style_number": "Cover", "season": "Cover", "category": "Cover", "gender_fit": "Cover",
     "summary": "Cover", "key_design_details": "Cover", "fit_notes": "Cover", "country_of_origin": "Cover",
-    "front_flat_svg": "Flats", "back_flat_svg": "Flats", "callouts": "Flats",
+    "front_flat_svg": "Flats", "back_flat_svg": "Flats", "callouts": "Flats", "flat_spec": "Flats",
     "bill_of_materials": "Bill of materials", "colorways": "Colourways",
     "units": "Measurements", "base_size": "Measurements", "sizes": "Measurements", "measurements": "Measurements",
     "construction": "Construction", "artwork": "Artwork", "labels_and_trims": "Labels & trims",
@@ -64,11 +66,21 @@ def check_pack(p: Dict[str, Any]) -> List[Dict[str, str]]:
         if not str(b.get("pantone", "")).strip():
             add("warn", "Materials", f"{b.get('component')}: no Pantone/colour reference.", f"bill_of_materials.{bi}.pantone")
 
-    drawn = " ".join(re.findall(r">\s*(\d+)\s*<", p.get("front_flat_svg", "") + p.get("back_flat_svg", "")))
-    drawn_set = set(drawn.split())
-    for c in p.get("callouts", []):
-        if str(c.get("number")) not in drawn_set:
-            add("warn", "Flats", f"Callout {c.get('number')} ({c.get('label')}) is listed but not drawn on either flat.")
+    flats = render_flats(p)
+    if flats:
+        drawn_set = {str(n) for n in flats["drawn"]}
+        for w in flats["warnings"]:
+            add("warn", "Flats", w)
+        if not (p.get("flat_spec") or {}).get("dims"):
+            add("warn", "Flats", "No flat dimensions are mapped to the measurement table, so the drawings use default proportions.")
+        for c in p.get("callouts", []):
+            if str(c.get("number")) not in drawn_set:
+                add("warn", "Flats", f"Callout {c.get('number')} ({c.get('label')}) isn't attached to a drawn feature.", f"callouts.{p['callouts'].index(c)}.anchor")
+    else:
+        drawn_set = set(re.findall(r">\s*(\d+)\s*<", p.get("front_flat_svg", "") + p.get("back_flat_svg", "")))
+        for c in p.get("callouts", []):
+            if str(c.get("number")) not in drawn_set:
+                add("warn", "Flats", f"Callout {c.get('number')} ({c.get('label')}) is listed but not drawn on either flat.")
     known = {str(c.get("number")) for c in p.get("callouts", [])}
     for si, s in enumerate(p.get("construction", [])):
         for ref in re.findall(r"\d+", str(s.get("callout_ref", ""))):
@@ -77,9 +89,10 @@ def check_pack(p: Dict[str, Any]) -> List[Dict[str, str]]:
         if not str(s.get("seam_allowance", "")).strip():
             add("warn", "Construction", f"{s.get('area')}: no seam allowance.", f"construction.{si}.seam_allowance")
 
-    for key in SVG_FIELDS:
-        if not p.get(key, "").lstrip().startswith("<svg"):
-            add("warn", "Flats", f"{key.split('_')[0].title()} flat is missing or not valid SVG.")
+    if not flats:
+        for key in SVG_FIELDS:
+            if not p.get(key, "").lstrip().startswith("<svg"):
+                add("warn", "Flats", f"{key.split('_')[0].title()} flat is missing or not valid SVG.")
 
     for key in ("sampling_requirements", "testing_requirements", "compliance_notes", "fit_notes"):
         if not p.get(key):

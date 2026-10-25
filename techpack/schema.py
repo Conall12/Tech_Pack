@@ -1,6 +1,6 @@
 """Structured tech pack schema. Claude fills this in; templates render it."""
 
-from typing import List
+from typing import List, Literal
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -9,6 +9,12 @@ class Callout(BaseModel):
     number: int = Field(description="Callout number shown on the flat sketch")
     label: str
     description: str
+    anchor: str = Field(
+        description="Where the app draws this callout on the flats. One of: hood, neck, closure, sleeve_seam, "
+        "panel_seam, pocket, cuff, hem, side_seam, yoke, drawcord, neck_label, back_hood_seam, waistband, fly, "
+        "knee_panel, cargo_pocket, back_pocket. Pick the feature the callout describes; empty string if it is not "
+        "a visible feature."
+    )
 
 
 class BomItem(BaseModel):
@@ -79,6 +85,46 @@ class PackingSpec(BaseModel):
     carton_marking: str = Field(description="Shipping mark / carton labelling requirements")
 
 
+class FlatDim(BaseModel):
+    role: str = Field(
+        description="TOPS: body_length (HPS to hem), chest_width, hem_width, armhole_drop (HPS to underarm), shoulder_width "
+        "(seam to seam; skip for raglan), sleeve_inseam (underarm to cuff; PREFERRED), sleeve_length (shoulder point to "
+        "cuff, only if there is no inseam; never map a centre-back sleeve length), cuff_width, neck_width, "
+        "front_neck_drop, hood_height, hood_width. BOTTOMS: waist_width, hip_width, front_rise, inseam, thigh_width, "
+        "knee_width, leg_opening, waistband_height."
+    )
+    pom_code: str = Field(
+        description="Code of the point of measure (from the measurements table) whose base-size value gives this "
+        "dimension. Must be a FLAT half-width/length, not a circumference."
+    )
+
+
+class FlatSpec(BaseModel):
+    """What the app needs to draw the technical flats to scale. The app draws them; do not draw SVG yourself."""
+
+    template: Literal["top", "bottom", "other"] = Field(
+        description="top = tee, sweatshirt, hoodie, jacket, windbreaker, shirt, vest. bottom = trousers, joggers, "
+        "shorts, cargo pants. other = anything else (dress, skirt, bag, cap): then you must draw the SVG flats yourself."
+    )
+    sleeve_style: Literal["set_in", "raglan", "drop_shoulder", "sleeveless", "none"]
+    neckline: Literal["crew", "v_neck", "hood", "collar", "mock", "none"]
+    closure: Literal["none", "full_zip", "half_zip", "buttons", "snaps", "zip_fly", "button_fly"] = Field(
+        description="Front closure of a top, or the fly of a bottom"
+    )
+    two_way_zip: bool
+    hem_style: Literal["plain", "ribbed", "elastic", "drawcord", "curved", "cuffed"] = Field(
+        description="Bottom hem of a top, or leg opening of a bottom"
+    )
+    cuff_style: Literal["plain", "ribbed", "elastic", "none"] = Field(description="Sleeve cuffs; none for bottoms/sleeveless")
+    pockets: List[Literal["kangaroo", "welt_vertical", "chest_patch", "side_slant", "cargo_patch", "back_patch", "none"]]
+    panel_seams: List[Literal["curved_side_panels", "yoke_front", "yoke_back", "knee_panel", "none"]]
+    waistband: Literal["none", "elastic", "drawcord", "fitted", "belt_loops"] = Field(description="Bottoms only; none for tops")
+    leg_shape: Literal["straight", "tapered", "wide", "flared", "none"] = Field(description="Bottoms only; none for tops")
+    piped_seams: bool = Field(description="Piping/binding on the panel or sleeve seams")
+    drawcord: bool = Field(description="Drawcord at the neck/hood (tops)")
+    dims: List[FlatDim]
+
+
 class TechPack(BaseModel):
     style_name: str
     style_number: str
@@ -88,12 +134,13 @@ class TechPack(BaseModel):
     summary: str = Field(description="2-4 sentence description of the garment for the factory")
     key_design_details: List[str]
 
+    flat_spec: FlatSpec
     front_flat_svg: str = Field(
-        description="Complete standalone <svg> technical flat, FRONT view. Black line art on white, "
-        "viewBox='0 0 400 500', stroke-width 1.5, no fill except white, dashed lines for topstitching, "
-        "numbered circle callouts matching the callouts list. No text other than callout numbers."
+        description="Leave as an empty string when flat_spec.template is top or bottom (the app draws the flats). "
+        "Only for template 'other': a complete standalone <svg> FRONT flat, black line art on white, "
+        "viewBox='0 0 400 500', stroke-width 1.5, dashed topstitching, numbered circle callouts matching the callouts list."
     )
-    back_flat_svg: str = Field(description="Same rules as front_flat_svg, BACK view, consistent proportions with the front.")
+    back_flat_svg: str = Field(description="Same rules as front_flat_svg, BACK view.")
     callouts: List[Callout]
 
     bill_of_materials: List[BomItem]
@@ -146,6 +193,13 @@ class TechPack(BaseModel):
         for key in ("fit_notes", "sampling_requirements", "testing_requirements", "compliance_notes"):
             data.setdefault(key, [])
         data.setdefault("country_of_origin", "")
+        data.setdefault("flat_spec", {
+            "template": "other", "sleeve_style": "none", "neckline": "none", "closure": "none", "two_way_zip": False,
+            "hem_style": "plain", "cuff_style": "none", "pockets": [], "panel_seams": [], "waistband": "none",
+            "leg_shape": "none", "piped_seams": False, "drawcord": False, "dims": [],
+        })
+        for row in data.get("callouts", []):
+            row.setdefault("anchor", "")
         data.setdefault("packing_details", {k: "" for k in PackingSpec.model_fields})
         for row in data.get("bill_of_materials", []):
             row.setdefault("pantone", "")
