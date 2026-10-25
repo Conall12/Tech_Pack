@@ -28,6 +28,7 @@
     </select>
     <button class="btn" type="button" id="edit-btn" title="Edit any value directly, no regeneration" {% if busy %}disabled{% endif %}>Edit</button>
     <button class="btn" type="button" id="open-revise" title="Describe changes and let Claude update the pack" {% if busy %}disabled{% endif %}>Revise</button>
+    {% include "_theme.html" %}
     <details class="menu">
       <summary class="btn primary">Export ▾</summary>
       <div class="pop">
