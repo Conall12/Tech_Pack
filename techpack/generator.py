@@ -97,7 +97,7 @@ def _brief_text(brief: dict) -> str:
     return "\n".join(lines)
 
 
-def _run_cli(brief_text: str, images: List[ReferenceImage]) -> TechPack:
+def _run_cli(brief_text: str, images: List[ReferenceImage], effort: Optional[str] = None) -> TechPack:
     """Generate via headless Claude Code so it runs on the user's subscription."""
     exe = shutil.which("claude")
     if not exe:
@@ -126,7 +126,7 @@ def _run_cli(brief_text: str, images: List[ReferenceImage]) -> TechPack:
             "--tools", "Read", "--allowedTools", "Read",
             "--permission-mode", "dontAsk",
             "--strict-mcp-config", "--disable-slash-commands", "--no-session-persistence",
-            "--effort", EFFORT,
+            "--effort", effort or EFFORT,
         ]
         if CLI_MODEL:
             cmd += ["--model", CLI_MODEL]
@@ -158,10 +158,10 @@ def _run_cli(brief_text: str, images: List[ReferenceImage]) -> TechPack:
         raise GenerationError(f"The tech pack failed validation: {str(e)[:300]}") from e
 
 
-def _run(content: list, images: Optional[List[ReferenceImage]] = None) -> TechPack:
+def _run(content: list, images: Optional[List[ReferenceImage]] = None, effort: Optional[str] = None) -> TechPack:
     if BACKEND == "claude-code":
         text = "\n\n".join(b["text"] for b in content if b.get("type") == "text" and not b["text"].startswith("Reference image "))
-        return _run_cli(text, images or [])
+        return _run_cli(text, images or [], effort)
     client = _client()
     try:
         with client.beta.messages.stream(
@@ -169,7 +169,7 @@ def _run(content: list, images: Optional[List[ReferenceImage]] = None) -> TechPa
             max_tokens=64000,
             system=SYSTEM_PROMPT,
             thinking={"type": "adaptive"},
-            output_config={"effort": EFFORT},
+            output_config={"effort": effort or EFFORT},
             output_format=TechPack,
             betas=["server-side-fallback-2026-07-01"],
             fallbacks="default",
@@ -194,7 +194,7 @@ def _run(content: list, images: Optional[List[ReferenceImage]] = None) -> TechPa
     return message.parsed_output
 
 
-def generate(images: List[ReferenceImage], brief: dict) -> TechPack:
+def generate(images: List[ReferenceImage], brief: dict, effort: Optional[str] = None) -> TechPack:
     content = _image_blocks(images)
     content.append(
         {
@@ -203,10 +203,10 @@ def generate(images: List[ReferenceImage], brief: dict) -> TechPack:
             + "\n\nProduce the complete tech pack for this garment.",
         }
     )
-    return _run(content, images)
+    return _run(content, images, effort)
 
 
-def revise(previous: TechPack, images: List[ReferenceImage], feedback: str) -> TechPack:
+def revise(previous: TechPack, images: List[ReferenceImage], feedback: str, effort: Optional[str] = None) -> TechPack:
     content = _image_blocks(images)
     content.append(
         {
@@ -220,7 +220,7 @@ def revise(previous: TechPack, images: List[ReferenceImage], feedback: str) -> T
             "and update the assumptions and questions.",
         }
     )
-    return _run(content, images)
+    return _run(content, images, effort)
 
 
 def load_image(path: str) -> Optional[ReferenceImage]:

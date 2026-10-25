@@ -1,9 +1,9 @@
 {% extends "base.html" %}
-{% block title %}Tech Pack{% endblock %}
+{% block title %}Selvedge{% endblock %}
 {% block body %}
 <header class="topbar">
   <div class="container row">
-    <a class="brand" href="/"><i></i>Tech Pack</a>
+    {% include "_brand.html" %}
     <span class="spacer"></span>
     <a class="btn ghost" href="#packs">Your packs</a>
   </div>
@@ -67,6 +67,14 @@
         <div class="full"><label for="notes">Anything else</label><textarea id="notes" name="notes" placeholder="Wash effects, things the reference image got wrong…">{{ f.other_notes or '' }}</textarea></div>
       </div>
     </details>
+
+    <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+      <span class="muted" style="font-weight:600;font-size:12px">Speed</span>
+      <div class="seg" title="Thorough takes longer but checks more carefully">
+        <input type="radio" id="sp-t" name="speed" value="thorough" {% if f.speed != 'fast' %}checked{% endif %}><label for="sp-t">Thorough · ~9 min</label>
+        <input type="radio" id="sp-f" name="speed" value="fast"><label for="sp-f">Faster · ~5 min</label>
+      </div>
+    </div>
 
     <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">
       <button id="go" class="btn primary lg" type="submit">Generate tech pack</button>

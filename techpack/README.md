@@ -1,6 +1,8 @@
-# Tech Pack Generator
+# Selvedge
 
-A local web app for your own clothing brand. Upload reference images (AI-generated or real), describe the garment, and Claude writes a factory-ready tech pack. You can print it or save it as a PDF to send to manufacturers.
+*Tech packs for your own clothing brand.* Named after the self-finished edge of a fabric that stops it fraying.
+
+A local web app. Upload reference images (AI-generated or real), describe the garment, and Claude writes a factory-ready tech pack. You can print it or save it as a PDF to send to manufacturers.
 
 Each tech pack includes:
 
@@ -30,6 +32,15 @@ uvicorn techpack.app:app --port 8000
 
 Then open http://localhost:8000.
 
+## Features
+
+- **Background generation** with a live timer; close the tab and come back.
+- **Edit** any value in place (saved as a new version, no AI call) and **Revise** in plain English for bigger changes.
+- **Compare versions** to see exactly what changed; each version in the revision log carries a change summary.
+- **Automatic checks** on the Review tab: sizes that don't grade upward, missing Pantones or seam allowances, callouts not drawn on the flats, and placeholders still to fill in, each with a "Go to" button.
+- **Factory bundle**: one click for a zip with the PDF, editable Excel, JSON and reference images (PDF needs Edge or Chrome installed).
+- **Duplicate** a pack to make a colourway or variant; **Thorough / Faster** speed option; dark mode.
+
 ## Using it
 
 1. Upload one or more reference images. Front, back and detail close-ups all help.
@@ -37,7 +48,7 @@ Then open http://localhost:8000.
 3. Click **Generate**. It takes about 5–10 minutes and runs in the background: you can close the tab and find the pack on the home page later.
 4. Review the pack, especially the assumptions, questions and measurements.
 5. Use **Revise** (top bar) to give feedback in plain English, e.g. "make the hood double-layer, 400gsm instead". Each revision is saved as a new version, and earlier versions are kept.
-6. Click **Print / PDF**, or **Excel** for an editable copy factories can annotate. The print layout is A4 landscape, one section per page, and the review checklist is left out.
+6. **Export ▾**: Factory bundle (zip), PDF, Excel, or JSON. The print layout is A4 landscape, one section per page, and the review checklist is left out.
 
 Packs are saved in `packs/` at the repo root, one folder per style containing the reference images, every version as JSON, and the history.
 
@@ -45,6 +56,7 @@ Packs are saved in `packs/` at the repo root, one folder per style containing th
 
 | Variable | Default | Purpose |
 |---|---|---|
+| `TECHPACK_BROWSER` | auto-detected | Path to Edge/Chrome used to make PDFs |
 | `TECHPACK_BACKEND` | `claude-code` | `claude-code` runs the local `claude` CLI on your subscription; `api` calls the Anthropic API |
 | `TECHPACK_CLI_MODEL` | CLI default | Model for the `claude-code` backend |
 | `TECHPACK_CLI_TIMEOUT` | `900` | Seconds before the CLI run is abandoned |

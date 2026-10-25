@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block title %}Compare · {{ name }} · Selvedge{% endblock %}
+{% block body %}
+<header class="topbar">
+  <div class="container row">
+    {% include "_brand.html" %}
+    <span class="muted">/</span>
+    <div class="title-block"><div class="t">{{ name }}</div><div class="s">Compare versions</div></div>
+    <span class="spacer"></span>
+    <a class="btn" href="/packs/{{ pack_id }}">Back to pack</a>
+  </div>
+</header>
+
+<main class="container narrow" style="padding-top:32px;padding-bottom:80px">
+  <h1>What changed</h1>
+  <form method="get" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:16px 0 8px">
+    <select name="a" class="ver" onchange="this.form.submit()" aria-label="From version">
+      {% for v in versions %}<option value="{{ v }}" {% if v == a %}selected{% endif %}>v{{ v }}</option>{% endfor %}
+    </select>
+    <span class="muted">→</span>
+    <select name="b" class="ver" onchange="this.form.submit()" aria-label="To version">
+      {% for v in versions %}<option value="{{ v }}" {% if v == b %}selected{% endif %}>v{{ v }}</option>{% endfor %}
+    </select>
+    <span class="muted">{{ summary if a != b else "Pick two different versions." }}</span>
+  </form>
+  <div class="hint" style="margin-bottom:20px">
+    {% for h in meta.history if h.version in (a, b) %}v{{ h.version }}: {{ h.note }}{% if not loop.last %} · {% endif %}{% endfor %}
+  </div>
+
+  {% if a != b and not groups %}
+  <div class="card empty">These two versions are identical.</div>
+  {% endif %}
+
+  {% for g in groups %}
+  <section class="card" style="margin-bottom:16px">
+    <h2>{{ g.section }} · {{ g.changes|length }}</h2>
+    {% for c in g.changes %}
+    <div class="diff">
+      <div class="path">{{ c.path|replace(".", " › ") }}</div>
+      <div class="old">{{ c.old if c.old is not none else "(none)" }}</div>
+      <div class="new">{{ c.new if c.new is not none else "(removed)" }}</div>
+    </div>
+    {% endfor %}
+  </section>
+  {% endfor %}
+</main>
+{% endblock %}
