@@ -54,6 +54,7 @@
     </select>
   </label>
   <a class="btn secondary" href="/packs/{{ pack_id }}/json?v={{ version }}" download="{{ pack_id }}-v{{ version }}.json">JSON</a>
+  <a class="btn secondary" href="/packs/{{ pack_id }}/xlsx?v={{ version }}">Excel (editable)</a>
   <button onclick="window.print()">Print / Save PDF</button>
 </div>
 
@@ -79,16 +80,33 @@
           <dt>Category</dt><dd>{{ pack.category }}</dd>
           <dt>Fit</dt><dd>{{ pack.gender_fit }}</dd>
           <dt>Sizes</dt><dd>{{ pack.sizes|join(", ") }} (base {{ pack.base_size }})</dd>
+          {% set b = meta.brief or {} %}
+          {% if b.brand %}<dt>Brand</dt><dd>{{ b.brand }}</dd>{% endif %}
+          {% if b.factory_or_supplier %}<dt>Factory</dt><dd>{{ b.factory_or_supplier }}</dd>{% endif %}
+          {% if b.sample_stage %}<dt>Sample stage</dt><dd>{{ b.sample_stage }}</dd>{% endif %}
+          {% if b.order_quantity %}<dt>Order qty</dt><dd>{{ b.order_quantity }}</dd>{% endif %}
+          {% if b.target_delivery %}<dt>Delivery</dt><dd>{{ b.target_delivery }}</dd>{% endif %}
+          {% if pack.country_of_origin %}<dt>Origin label</dt><dd>{{ pack.country_of_origin }}</dd>{% endif %}
           <dt>Units</dt><dd>{{ pack.units }}</dd>
           <dt>Date</dt><dd>{{ meta.history[version-1].at if meta.history|length >= version else meta.created }}</dd>
         </dl>
         <p style="margin-top:16px">{{ pack.summary }}</p>
         <h2 style="margin-top:16px">Key design details</h2>
         <ul class="tight">{% for d in pack.key_design_details %}<li>{{ d }}</li>{% endfor %}</ul>
+        {% if pack.fit_notes %}<h2 style="margin-top:16px">Fit notes</h2>
+        <ul class="tight">{% for d in pack.fit_notes %}<li>{{ d }}</li>{% endfor %}</ul>{% endif %}
       </div>
       <div>
         <h2>Reference images</h2>
         <div class="refs">{% for img in images %}<img src="/packs/{{ pack_id }}/images/{{ img }}" alt="Reference {{ loop.index }}">{% endfor %}</div>
+        {% if meta.history %}
+        <h2 style="margin-top:16px">Revision log</h2>
+        <table>
+          <tr><th>Ver.</th><th>Date</th><th>Change</th></tr>
+          {% for h in meta.history if h.version <= version %}<tr><td class="num">v{{ h.version }}</td><td>{{ h.at }}</td><td>{{ h.note }}</td></tr>{% endfor %}
+        </table>
+        <p class="hint">Factory: build only to the highest version shown on every page.</p>
+        {% endif %}
       </div>
     </div>
   </section>
@@ -113,9 +131,9 @@
     {{ head("Bill of materials & colourways", 3) }}
     <div class="table-scroll section">
     <table>
-      <tr><th>Component</th><th>Material</th><th>Composition</th><th>Weight / size</th><th>Colour</th><th>Placement</th><th>Qty</th><th>Notes</th></tr>
+      <tr><th>Component</th><th>Material</th><th>Composition</th><th>Weight / size</th><th>Colour</th><th>Pantone</th><th>Placement</th><th>Qty</th><th>Notes</th></tr>
       {% for b in pack.bill_of_materials %}
-      <tr><td><strong>{{ b.component }}</strong></td><td>{{ b.material }}</td><td>{{ b.composition }}</td><td>{{ b.weight_or_size }}</td><td>{{ b.color }}</td><td>{{ b.placement }}</td><td>{{ b.quantity }}</td><td>{{ b.notes }}</td></tr>
+      <tr><td><strong>{{ b.component }}</strong></td><td>{{ b.material }}</td><td>{{ b.composition }}</td><td>{{ b.weight_or_size }}</td><td>{{ b.color }}</td><td>{{ b.pantone }}</td><td>{{ b.placement }}</td><td>{{ b.quantity }}</td><td>{{ b.notes }}</td></tr>
       {% endfor %}
     </table>
     </div>
@@ -131,10 +149,10 @@
     {{ head("Points of measure & grading (" ~ pack.units ~ ")", 4) }}
     <div class="table-scroll">
     <table>
-      <tr><th style="width:40px">Code</th><th>Point of measure</th><th>Tol ±</th>
+      <tr><th style="width:40px">Code</th><th>Point of measure</th><th>Tol ±</th><th>Grade</th>
         {% for s in pack.sizes %}<th class="num {% if s == pack.base_size %}base{% endif %}">{{ s }}</th>{% endfor %}</tr>
       {% for m in pack.measurements %}
-      <tr><td class="num"><strong>{{ m.code }}</strong></td><td>{{ m.description }}</td><td class="num">{{ m.tolerance }}</td>
+      <tr><td class="num"><strong>{{ m.code }}</strong></td><td>{{ m.description }}</td><td class="num">{{ m.tolerance }}</td><td class="num">{{ m["values"]|grade }}</td>
         {% for s in pack.sizes %}<td class="num {% if s == pack.base_size %}base{% endif %}">{{ m["values"][loop.index0] if loop.index0 < m["values"]|length else "–" }}</td>{% endfor %}</tr>
       {% endfor %}
     </table>
@@ -147,9 +165,9 @@
     {{ head("Construction details", 5) }}
     <div class="table-scroll">
     <table>
-      <tr><th>Area</th><th>Operation</th><th>Stitch type</th><th>Seam type</th><th>SPI</th><th>Notes</th></tr>
+      <tr><th>Area</th><th>Operation</th><th>Stitch type</th><th>Seam type</th><th>SPI</th><th>Seam allow.</th><th>Callout</th><th>Notes</th></tr>
       {% for c in pack.construction %}
-      <tr><td><strong>{{ c.area }}</strong></td><td>{{ c.operation }}</td><td>{{ c.stitch_type }}</td><td>{{ c.seam_type }}</td><td class="num">{{ c.spi }}</td><td>{{ c.notes }}</td></tr>
+      <tr><td><strong>{{ c.area }}</strong></td><td>{{ c.operation }}</td><td>{{ c.stitch_type }}</td><td>{{ c.seam_type }}</td><td class="num">{{ c.spi }}</td><td class="num">{{ c.seam_allowance }}</td><td class="num">{{ c.callout_ref }}</td><td>{{ c.notes }}</td></tr>
       {% endfor %}
     </table>
     </div>
@@ -170,8 +188,8 @@
     <div class="section table-scroll">
       <h2>Labels & trims</h2>
       <table>
-        <tr><th>Item</th><th>Specification</th><th>Placement</th></tr>
-        {% for l in pack.labels_and_trims %}<tr><td><strong>{{ l.item }}</strong></td><td>{{ l.spec }}</td><td>{{ l.placement }}</td></tr>{% endfor %}
+        <tr><th>Item</th><th>Specification</th><th>Size</th><th>Content</th><th>Placement</th></tr>
+        {% for l in pack.labels_and_trims %}<tr><td><strong>{{ l.item }}</strong></td><td>{{ l.spec }}</td><td>{{ l.size }}</td><td>{{ l.content }}</td><td>{{ l.placement }}</td></tr>{% endfor %}
       </table>
     </div>
     <div class="two">
@@ -182,6 +200,36 @@
       <div>
         <h2>Packaging</h2><p>{{ pack.packaging }}</p>
         <h2>Quality requirements</h2><ul class="tight">{% for q in pack.quality_requirements %}<li>{{ q }}</li>{% endfor %}</ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- 7. Sampling, testing, packing, compliance -->
+  <section class="sheet">
+    {{ head("Sampling, testing, packing & compliance", 7) }}
+    <div class="two">
+      <div>
+        <div class="section"><h2>Sampling requirements</h2>
+          <ul class="tight">{% for x in pack.sampling_requirements %}<li>{{ x }}</li>{% endfor %}</ul></div>
+        <div class="section"><h2>Packing</h2>
+          {% set pk = pack.packing_details %}
+          <table>
+            <tr><th style="width:130px">Folding</th><td>{{ pk.folding }}</td></tr>
+            <tr><th>Polybag</th><td>{{ pk.polybag }}</td></tr>
+            <tr><th>Hangtag / stickers</th><td>{{ pk.hangtag_and_stickers }}</td></tr>
+            <tr><th>Units per carton</th><td>{{ pk.units_per_carton }}</td></tr>
+            <tr><th>Packing ratio</th><td>{{ pk.packing_ratio }}</td></tr>
+            <tr><th>Carton marking</th><td>{{ pk.carton_marking }}</td></tr>
+          </table></div>
+      </div>
+      <div>
+        <div class="section table-scroll"><h2>Testing requirements</h2>
+          <table>
+            <tr><th>Test</th><th>Standard</th><th>Requirement</th></tr>
+            {% for t in pack.testing_requirements %}<tr><td>{{ t.test }}</td><td>{{ t.standard }}</td><td>{{ t.requirement }}</td></tr>{% endfor %}
+          </table></div>
+        <div class="section"><h2>Compliance</h2>
+          <ul class="tight">{% for x in pack.compliance_notes %}<li>{{ x }}</li>{% endfor %}</ul></div>
       </div>
     </div>
   </section>

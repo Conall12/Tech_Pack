@@ -41,6 +41,16 @@ silhouette you see. Give every size requested. Use realistic tolerances.
 - Technical flats: draw clean, symmetrical, factory-style flat sketches as SVG line art. Front and back \
 must match in proportions and seam placement. Mark topstitching with dashed lines. Put numbered circle \
 callouts on key details, and describe each in the callouts list.
+- Factories sample from the pack alone, so leave nothing for them to guess. Every BOM line needs a \
+colour name AND a Pantone TCX reference (thread, zip tape, labels, polybag and interlining included, \
+not just the shell fabric). Include thread, interlining/fusing, labels, hangtags and packaging items \
+in the BOM. Give every construction step a seam allowance and the callout number(s) it relates to. \
+Give label sizes and exact label text. Fit notes must state the intended silhouette, ease and what to \
+avoid. Sampling requirements must name the sample stages (proto, fit, SMS, PP, TOP) and the lab dips \
+or strike-offs needed. Testing must use real standards (e.g. ISO 6330 wash, ISO 105 colourfastness, \
+ISO 13935 seam strength) with pass criteria. Packing must give folding, polybag, hangtag, carton \
+quantity, size ratio and carton marking. Compliance notes must cover care symbols (ISO 3758), fibre \
+labelling and restricted substances, and say which market rules the designer must confirm.
 - Never invent brand names, supplier names or trademarked logos. Do not reproduce third-party logos \
 from the images.
 - Be honest: list every assumption you made and every question the designer should answer before \
