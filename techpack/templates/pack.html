@@ -107,7 +107,7 @@
       <div>
         <h2>Reference images</h2>
         <div class="refs">{% for img in images %}<img src="/packs/{{ pack_id }}/images/{{ img }}" alt="Reference {{ loop.index }}">{% endfor %}</div>
-        {% if meta.history %}
+        {% if meta.history and meta.history|length > 1 %}
         <h2 style="margin-top:20px">Revision log</h2>
         <table>
           <tr><th>Ver.</th><th>Date</th><th>Change</th></tr>
@@ -164,13 +164,13 @@
         {% endfor %}
       </table>
     </div>
-    <div class="section">
+    {% if pack.colorways|length > 1 %}<div class="section">
       <h2>Colourways</h2>
       <table>
         <tr><th>Colourway</th><th>Pantone (approx.)</th><th>Applies to</th></tr>
         {% for c in pack.colorways %}{% set i = loop.index0 %}<tr><td>{{ e("colorways.%d.name"|format(i), c.name) }}</td><td>{{ e("colorways.%d.pantone"|format(i), c.pantone) }}</td><td>{{ e("colorways.%d.applies_to"|format(i), c.applies_to) }}</td></tr>{% endfor %}
       </table>
-    </div>
+    </div>{% endif %}
   </section>
 
   <!-- 4. Measurements -->
@@ -178,10 +178,10 @@
     {{ head("Points of measure & grading (" ~ pack.units ~ ")", 4) }}
     <div class="table-scroll">
       <table>
-        <tr><th class="num" style="width:44px">Code</th><th>Point of measure</th><th class="num">Tol ±</th><th class="num">Grade</th>
+        <tr><th class="num" style="width:44px">Code</th><th>Point of measure</th><th class="num">Tol ±</th>
           {% for s in pack.sizes %}<th class="num {% if s == pack.base_size %}base{% endif %}">{{ s }}</th>{% endfor %}</tr>
         {% for m in pack.measurements %}{% set mi = loop.index0 %}
-        <tr><td class="num"><strong>{{ m.code }}</strong></td><td>{{ e("measurements.%d.description"|format(mi), m.description) }}</td><td class="num">{{ e("measurements.%d.tolerance"|format(mi), m.tolerance) }}</td><td class="num">{{ m["values"]|grade }}</td>
+        <tr><td class="num"><strong>{{ m.code }}</strong></td><td>{{ e("measurements.%d.description"|format(mi), m.description) }}</td><td class="num">{{ e("measurements.%d.tolerance"|format(mi), m.tolerance) }}</td>
           {% for s in pack.sizes %}<td class="num {% if s == pack.base_size %}base{% endif %}">{% if loop.index0 < m["values"]|length %}{{ e("measurements.%d.values.%d"|format(mi, loop.index0), m["values"][loop.index0]) }}{% else %}–{% endif %}</td>{% endfor %}</tr>
         {% endfor %}
       </table>
@@ -227,8 +227,8 @@
         <h2 style="margin-top:18px">Care instructions</h2><ul class="tight">{% for c in pack.care_instructions %}<li>{{ e("care_instructions.%d"|format(loop.index0), c) }}</li>{% endfor %}</ul>
       </div>
       <div>
-        <h2>Packaging</h2><p>{{ e("packaging", pack.packaging) }}</p>
-        <h2 style="margin-top:18px">Quality requirements</h2><ul class="tight">{% for q in pack.quality_requirements %}<li>{{ e("quality_requirements.%d"|format(loop.index0), q) }}</li>{% endfor %}</ul>
+        {% if not pack.packing_details.folding %}<h2>Packaging</h2><p>{{ e("packaging", pack.packaging) }}</p>{% endif %}
+        <h2{% if not pack.packing_details.folding %} style="margin-top:18px"{% endif %}>Quality requirements</h2><ul class="tight">{% for q in pack.quality_requirements %}<li>{{ e("quality_requirements.%d"|format(loop.index0), q) }}</li>{% endfor %}</ul>
       </div>
     </div>
   </section>
@@ -257,7 +257,7 @@
             <tr><th>Test</th><th>Standard</th><th>Requirement</th></tr>
             {% for t in pack.testing_requirements %}{% set i = loop.index0 %}<tr><td>{{ e("testing_requirements.%d.test"|format(i), t.test) }}</td><td>{{ e("testing_requirements.%d.standard"|format(i), t.standard) }}</td><td>{{ e("testing_requirements.%d.requirement"|format(i), t.requirement) }}</td></tr>{% endfor %}
           </table></div>
-        <div class="section"><h2>Compliance</h2>
+        <div class="section no-print"><h2>Compliance <span class="muted" style="text-transform:none;letter-spacing:0">(for you; not printed)</span></h2>
           <ul class="tight">{% for x in pack.compliance_notes %}<li>{{ e("compliance_notes.%d"|format(loop.index0), x) }}</li>{% endfor %}</ul></div>
       </div>
     </div>

@@ -49,6 +49,7 @@ or strike-offs needed. Testing must use real standards (e.g. ISO 6330 wash, ISO 
 ISO 13935 seam strength) with pass criteria. Packing must give folding, polybag, hangtag, carton \
 quantity, size ratio and carton marking. Compliance notes must cover care symbols (ISO 3758), fibre \
 labelling and restricted substances, and say which market rules the designer must confirm.
+- Keep it short and say each thing once. The factory reads this on paper, so every line must earn its place. The summary is 2 sentences at most and does not list details. key_design_details are at most 6 short bullets, only what makes this style different; do not repeat anything the construction table, callouts or measurement table already say. fit_notes are at most 4 short bullets (silhouette, ease, what to avoid) and never repeat measurement numbers, grading or the construction. Do not repeat the same fact in different sections: the hangtag, labels, care text and packing each live in ONE place. Write in short imperative sentences, no filler, no legal boilerplate; compliance_notes at most 5 one-line bullets, and only rules that change what the factory does. Skip measurement rows nobody will check; a tech pack for a simple garment needs about 10-16 points of measure.
 - Never invent brand names, supplier names or trademarked logos. Do not reproduce third-party logos \
 from the images.
 - Be honest: list every assumption you made and every question the designer should answer before \

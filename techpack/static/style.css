@@ -203,7 +203,7 @@ th.base, td.base { background: #f3f1ee; font-weight: 700; }
   th, td { padding: 3px 5px; }
   th { font-size: 7.5px; }
   .kv { font-size: 9px; gap: 3px 10px; grid-template-columns: 90px 1fr; }
-  .two { gap: 18px; }
+  .two { grid-template-columns: 1fr 1fr !important; gap: 18px; }
   .section + .section { margin-top: 10px; }
   ul.tight li { margin-bottom: 2px; }
   .flats { grid-template-columns: 1fr 1fr !important; gap: 10px; }
