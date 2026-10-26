@@ -117,11 +117,13 @@ class FlatSpec(BaseModel):
     )
     cuff_style: Literal["plain", "ribbed", "elastic", "none"] = Field(description="Sleeve cuffs; none for bottoms/sleeveless")
     pockets: List[Literal["kangaroo", "welt_vertical", "chest_patch", "side_slant", "cargo_patch", "back_patch", "none"]]
-    panel_seams: List[Literal["curved_side_panels", "yoke_front", "yoke_back", "knee_panel", "none"]]
+    panel_seams: List[Literal["curved_side_panels", "yoke_front", "yoke_back", "knee_panel", "sleeve_stripe", "none"]]
     waistband: Literal["none", "elastic", "drawcord", "fitted", "belt_loops"] = Field(description="Bottoms only; none for tops")
     leg_shape: Literal["straight", "tapered", "wide", "flared", "none"] = Field(description="Bottoms only; none for tops")
     piped_seams: bool = Field(description="Piping/binding on the panel or sleeve seams")
     drawcord: bool = Field(description="Drawcord at the neck/hood (tops)")
+    body_colour: str = Field(default="", description="Main fabric colour of this garment as a hex code, e.g. #44484c, taken from the reference photos / Pantone. The flats are filled with it.")
+    trim_colour: str = Field(default="", description="Hex colour of the contrast piping/binding; empty if none.")
     dims: List[FlatDim]
 
 

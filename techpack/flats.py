@@ -84,6 +84,9 @@ def resolve_dims(pack: dict, template: str, spec: Optional[dict] = None) -> Tupl
             continue
         if k not in out and v is not None:
             out[k] = float(v)
+    if template == "bottom" and out.get("thigh_width") and out.get("hip_width") and 2 * out["thigh_width"] > out["hip_width"] + 10:
+        warnings.append(f"Thigh width ({out['thigh_width']:g} each leg) is wider than half the hip allows (hip {out['hip_width']:g} flat); "
+                        "the drawing is capped, so check these two measurements.")
     if template == "top":
         out.setdefault("hem_width", out["chest_width"] * 0.96)
         style = spec.get("sleeve_style")
@@ -93,11 +96,33 @@ def resolve_dims(pack: dict, template: str, spec: Optional[dict] = None) -> Tupl
 
 # ---------------------------------------------------------------- drawing kit
 
+def _hex(c: str, default: str) -> str:
+    m = re.fullmatch(r"#?([0-9a-fA-F]{6})", str(c or "").strip())
+    return "#" + m.group(1).lower() if m else default
+
+
+def _lum(h: str) -> float:
+    r, g, b = (int(h[i:i + 2], 16) / 255 for i in (1, 3, 5))
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b
+
+
+def _mix(h: str, other: str, t: float) -> str:
+    a = [int(h[i:i + 2], 16) for i in (1, 3, 5)]
+    b = [int(other[i:i + 2], 16) for i in (1, 3, 5)]
+    return "#" + "".join(f"{round(x + (y - x) * t):02x}" for x, y in zip(a, b))
+
+
 class _Draw:
     """Collects SVG pieces. All geometry is given in cm (y down); this scales to pixels."""
 
-    def __init__(self, s: float, ox: float, oy: float):
+    def __init__(self, s: float, ox: float, oy: float, body: str = "#ffffff", trim: str = ""):
         self.s, self.ox, self.oy = s, ox, oy
+        self.body = _hex(body, "#ffffff")
+        dark = _lum(self.body) < 0.35
+        self.ink = INK if _lum(self.body) > 0.10 else "#9a9a9a"       # outline stays visible on very dark cloth
+        self.stitch = _mix(self.body, "#ffffff" if dark else "#000000", 0.55)   # topstitch / rib lines
+        self.trim = _hex(trim, "") or ("#f4f4f0" if dark else "#141414")
+        self.shade = _mix(self.body, "#000000" if not dark else "#ffffff", 0.10)  # hood opening, inner pieces
         self.back: List[str] = []     # drawn first (e.g. hood)
         self.parts: List[str] = []
         self.pom: List[str] = []
@@ -114,7 +139,9 @@ class _Draw:
             out.append(c[0] + " " + " ".join(self.P(p) for p in c[1:]) if len(c) > 1 else c[0])
         return " ".join(out)
 
-    def path(self, cmds, *, dash=False, fill="none", sw=1.6, color=INK, to=None, op=None):
+    def path(self, cmds, *, dash=False, fill="none", sw=1.6, color=None, to=None, op=None):
+        if color is None:
+            color = self.stitch if (dash or op) else self.ink
         extra = ' stroke-dasharray="5 3.2"' if dash else ""
         extra += ' stroke-linejoin="round" stroke-linecap="round"'
         if op:
@@ -128,7 +155,7 @@ class _Draw:
         self.path([("M", (x0, y0)), ("L", (x1, y0)), ("L", (x1, y1)), ("L", (x0, y1)), ("Z",)], **kw)
 
     def circle(self, c: Pt, r_cm: float, fill="none", sw=1.3):
-        self.parts.append(f'<circle cx="{self.X(c[0]):.1f}" cy="{self.Y(c[1]):.1f}" r="{max(1.6, r_cm * self.s):.1f}" fill="{fill}" stroke="{INK}" stroke-width="{sw}"/>')
+        self.parts.append(f'<circle cx="{self.X(c[0]):.1f}" cy="{self.Y(c[1]):.1f}" r="{max(1.6, r_cm * self.s):.1f}" fill="{fill}" stroke="{self.ink}" stroke-width="{sw}"/>')
 
 
 def mir(cmds):
@@ -141,10 +168,14 @@ def both(dr: _Draw, cmds, **kw):
     dr.path(mir(cmds), **kw)
 
 
+def piping(dr: _Draw, cmds, **kw):
+    """A seam with contrast piping: the trim colour as a narrow strip with a fine outline either side."""
+    dr.path(cmds, sw=4.2, color=dr.ink)
+    dr.path(cmds, sw=2.4, color=dr.trim)
+
+
 def offset_pair(dr: _Draw, cmds, gap_cm=0.45, **kw):
-    """Draw a seam as two close parallel lines (piping). Offsets the control points sideways."""
-    dr.path(cmds, **kw)
-    dr.path([(c[0],) + tuple((p[0] - gap_cm, p[1]) for p in c[1:]) for c in cmds], **kw)
+    piping(dr, cmds)
 
 
 def bez(p0: Pt, p1: Pt, p2: Pt, p3: Pt, t: float) -> Pt:
@@ -184,7 +215,7 @@ def _sleeve_pts(d, spec, S, U):
         Pb = (U[0] + d["bicep_width"] * perp[0], U[1] + d["bicep_width"] * perp[1])
         if spec.get("sleeve_style") in ("raglan", "drop_shoulder"):
             # the shoulder point isn't measured: it sits where the sleeve's outer edge meets the shoulder slope
-            k = 0.55 if spec.get("sleeve_style") == "raglan" else 0.40
+            k = 0.42 if spec.get("sleeve_style") == "raglan" else 0.32
             dx, dy = Co[0] - Pb[0], Co[1] - Pb[1]
             nx = d["neck_width"] / 2
             den = dy - k * dx
@@ -210,9 +241,11 @@ def _top_extent(d, spec) -> Tuple[float, float, float]:
     """Half-width, top (negative) and bottom of the drawing in cm, for scaling."""
     sleeve = spec.get("sleeve_style") not in ("sleeveless", "none")
     S, U, _, _ = _top_geom(d, spec)
+    low = 0.0
     if sleeve:
         Co, Ci, _, _, S, Pb = _sleeve_pts(d, spec, S, U)
         sx = max(Co[0], Ci[0], S[0], Pb[0] if Pb else 0)
+        low = max(Co[1], Ci[1]) + 4.0   # long sleeves can hang below the hem
     else:
         sx = S[0]
     half = max(sx, d["chest_width"] / 2, d["hem_width"] / 2)
@@ -220,13 +253,13 @@ def _top_extent(d, spec) -> Tuple[float, float, float]:
     top = -(d["hood_height"] + 1.5) if hood else (-5.5 if spec.get("neckline") == "mock" else -1.5)
     if hood:
         half = max(half, d["hood_width"] / 2)
-    return half, top, d["body_length"] + 4.0
+    return half, top, max(d["body_length"] + 4.0, low)
 
 
 def _theta(d, spec) -> float:
     style = spec.get("sleeve_style")
     sl = d.get("sleeve_length") or d.get("sleeve_inseam", 48) + 10
-    base = {"raglan": 15, "drop_shoulder": 11}.get(style, 15)
+    base = {"raglan": 12, "drop_shoulder": 8}.get(style, 14)
     if sl < 34:
         base = 62
     elif sl < 48:
@@ -253,18 +286,18 @@ def draw_top(dr: _Draw, d: Dict[str, float], spec: dict, view: str):
     HH, HDW = d["hood_height"], d["hood_width"]
     if hood:
         hood_out = [("M", (-NW / 2 - 0.6, 1.2)),
-                    ("C", (-HDW / 2 - 0.5, -HH * 0.18), (-HDW / 2, -HH * 0.95), (0, -HH)),
-                    ("C", (HDW / 2, -HH * 0.95), (HDW / 2 + 0.5, -HH * 0.18), (NW / 2 + 0.6, 1.2)), ("Z",)]
-        dr.path(hood_out, fill="#fff", to=dr.back)
+                    ("C", (-HDW / 2 - 1.4, -HH * 0.30), (-HDW * 0.58, -HH), (0, -HH)),
+                    ("C", (HDW * 0.58, -HH), (HDW / 2 + 1.4, -HH * 0.30), (NW / 2 + 0.6, 1.2)), ("Z",)]
+        dr.path(hood_out, fill=dr.body, to=dr.back)
         if front:
             ow = HDW * 0.34
             opening = [("M", (-ow * 0.55, ND * 0.8)),
-                       ("C", (-ow * 1.25, -HH * 0.12), (-ow * 1.05, -HH * 0.80), (0, -HH * 0.90)),
-                       ("C", (ow * 1.05, -HH * 0.80), (ow * 1.25, -HH * 0.12), (ow * 0.55, ND * 0.8))]
-            dr.path(opening, fill="#f4f4f4", to=dr.back)
+                       ("C", (-ow * 1.55, -HH * 0.16), (-ow * 1.45, -HH * 0.88), (0, -HH * 0.90)),
+                       ("C", (ow * 1.45, -HH * 0.88), (ow * 1.55, -HH * 0.16), (ow * 0.55, ND * 0.8))]
+            dr.path(opening, fill=dr.shade, to=dr.back)
             inner = [("M", (-ow * 0.55 - 1.0, ND * 0.8 + 0.2)),
-                     ("C", (-ow * 1.37, -HH * 0.12), (-ow * 1.15, -HH * 0.86), (0, -HH * 0.97)),
-                     ("C", (ow * 1.15, -HH * 0.86), (ow * 1.37, -HH * 0.12), (ow * 0.55 + 1.0, ND * 0.8 + 0.2))]
+                     ("C", (-ow * 1.67, -HH * 0.16), (-ow * 1.55, -HH * 0.94), (0, -HH * 0.97)),
+                     ("C", (ow * 1.55, -HH * 0.94), (ow * 1.67, -HH * 0.16), (ow * 0.55 + 1.0, ND * 0.8 + 0.2))]
             dr.path(inner, dash=True, sw=1.1, to=dr.back)
         else:
             dr.line((0, -HH), (0, 0.5), to=dr.back)
@@ -288,7 +321,7 @@ def draw_top(dr: _Draw, d: Dict[str, float], spec: dict, view: str):
         right = [("L", (U[0], AD + 0.01)), ("L", (U[0] - 1.0, AD)), ("Q", (S[0] - 2.5, AD * 0.55), (S[0], S[1])), ("L", (N[0], N[1]))]
     hem_sag = 1.3 if spec.get("hem_style") == "curved" else 0.0
     hem = [("L", (-Hm[0], Hm[1])), ("Q", (0, BL + 2 * hem_sag), (Hm[0], Hm[1]))] if hem_sag else [("L", (-Hm[0], Hm[1])), ("L", (Hm[0], Hm[1]))]
-    dr.path(left + hem + right + neck_cmds + [("Z",)], fill="#fff", sw=1.9)
+    dr.path(left + hem + right + neck_cmds + [("Z",)], fill=dr.body, sw=1.9)
     # --- neckline details
     if neck == "crew":
         c2 = [("M", (-NW / 2 + 0.5, 0.2)), ("C", (-NW * 0.42, ND * 0.62), (-NW * 0.19, ND - 2.4), (0, ND - 2.4)),
@@ -299,11 +332,11 @@ def draw_top(dr: _Draw, d: Dict[str, float], spec: dict, view: str):
     elif neck == "v_neck" and front:
         dr.path([("M", (-NW / 2 + 0.7, 0.2)), ("L", (0, ND - 2.6)), ("L", (NW / 2 - 0.7, 0.2))], dash=True, sw=1.2)
     elif neck == "mock":
-        dr.path([("M", (-NW / 2, 0)), ("L", (-NW / 2 + 0.9, -5)), ("L", (NW / 2 - 0.9, -5)), ("L", (NW / 2, 0))], fill="#fff", sw=1.7)
+        dr.path([("M", (-NW / 2, 0)), ("L", (-NW / 2 + 0.9, -5)), ("L", (NW / 2 - 0.9, -5)), ("L", (NW / 2, 0))], fill=dr.body, sw=1.7)
         dr.line((-NW / 2 + 0.5, -2.6), (NW / 2 - 0.5, -2.6), dash=True, sw=1.1)
     elif neck == "collar":
-        dr.path([("M", (-NW / 2, 0)), ("L", (-NW / 2 - 1.2, -3.2)), ("L", (-1.2, ND * 0.9)), ("L", (0, ND))], fill="#fff", sw=1.5)
-        dr.path([("M", (NW / 2, 0)), ("L", (NW / 2 + 1.2, -3.2)), ("L", (1.2, ND * 0.9)), ("L", (0, ND))], fill="#fff", sw=1.5)
+        dr.path([("M", (-NW / 2, 0)), ("L", (-NW / 2 - 1.2, -3.2)), ("L", (-1.2, ND * 0.9)), ("L", (0, ND))], fill=dr.body, sw=1.5)
+        dr.path([("M", (NW / 2, 0)), ("L", (NW / 2 + 1.2, -3.2)), ("L", (1.2, ND * 0.9)), ("L", (0, ND))], fill=dr.body, sw=1.5)
     elif neck == "hood" and front:
         dr.path([("M", (-NW / 2 + 0.4, 0.2)), ("C", (-NW * 0.4, ND * 0.7), (-NW * 0.17, ND - 1.5), (0, ND - 1.5)),
                  ("C", (NW * 0.17, ND - 1.5), (NW * 0.4, ND * 0.7), (NW / 2 - 0.4, 0.2))], dash=True, sw=1.1)
@@ -326,6 +359,15 @@ def draw_top(dr: _Draw, d: Dict[str, float], spec: dict, view: str):
         seam = [("M", S), ("Q", (S[0] - 3.4, (S[1] + U[1]) * 0.5), (U[0] - 0.3, U[1]))]
         both(dr, seam, sw=1.4)
         sleeve_seam_pt = qbez(S, (S[0] - 3.4, (S[1] + U[1]) * 0.5), (U[0] - 0.3, U[1]), 0.5)
+    if has_sleeve and "sleeve_stripe" in spec.get("panel_seams", []):
+        bw = d.get("bicep_width") or CuW * 2.5
+        top = (U[0] + (bw / 2) * perp[0] + 1.5 * dirv[0], U[1] + (bw / 2) * perp[1] + 1.5 * dirv[1])
+        ch0 = {"ribbed": 6.0, "elastic": 4.5, "plain": 3.0}.get(spec.get("cuff_style", "plain"), 0.0)
+        bot = ((Co[0] + Ci[0]) / 2 - ch0 * dirv[0], (Co[1] + Ci[1]) / 2 - ch0 * dirv[1])
+        stripe = [("M", (-top[0], top[1])), ("L", (-bot[0], bot[1]))]
+        (piping(dr, stripe) if piped else dr.path(stripe, sw=1.4))
+        (piping(dr, mir(stripe)) if piped else dr.path(mir(stripe), sw=1.4))
+        dr.anchors["panel_seam"] = ((-(top[0] + bot[0]) / 2), (top[1] + bot[1]) / 2)
     if sleeve_seam_pt:
         dr.anchors["sleeve_seam"] = (-sleeve_seam_pt[0], sleeve_seam_pt[1])
     if has_sleeve:
@@ -373,17 +415,17 @@ def draw_top(dr: _Draw, d: Dict[str, float], spec: dict, view: str):
         if cl in ("full_zip", "half_zip"):
             dr.line((-0.35, ND), (-0.35, y_end), sw=1.4); dr.line((0.35, ND), (0.35, y_end), sw=1.4)
             dr.line((-1.1, ND), (-1.1, y_end), dash=True, sw=1.0); dr.line((1.1, ND), (1.1, y_end), dash=True, sw=1.0)
-            dr.rect(-0.8, ND - 1.0, 0.8, ND + 1.6, fill="#fff", sw=1.2)
-            dr.rect(-0.45, ND + 1.6, 0.45, ND + 4.4, fill="#fff", sw=1.2)
+            dr.rect(-0.8, ND - 1.0, 0.8, ND + 1.6, fill=dr.body, sw=1.2)
+            dr.rect(-0.45, ND + 1.6, 0.45, ND + 4.4, fill=dr.body, sw=1.2)
             if spec.get("two_way_zip") and cl == "full_zip":
-                dr.rect(-0.8, y_end - 2.6, 0.8, y_end - 0.4, fill="#fff", sw=1.2)
-                dr.rect(-0.45, y_end - 0.4, 0.45, y_end + 2.2, fill="#fff", sw=1.2)
+                dr.rect(-0.8, y_end - 2.6, 0.8, y_end - 0.4, fill=dr.body, sw=1.2)
+                dr.rect(-0.45, y_end - 0.4, 0.45, y_end + 2.2, fill=dr.body, sw=1.2)
         else:
             dr.line((-1.7, ND), (-1.7, y_end), dash=True, sw=1.0); dr.line((1.7, ND), (1.7, y_end), dash=True, sw=1.0)
             dr.line((0, ND), (0, y_end), sw=0.7, op=0.5)
             n = max(3, int((y_end - ND) // 11)); gap = (y_end - ND - 4) / n
             for k in range(n + 1):
-                dr.circle((0, ND + 2 + k * gap), 0.7, fill="#fff")
+                dr.circle((0, ND + 2 + k * gap), 0.7, fill=dr.body)
         dr.anchors["closure"] = (0.0, ND + (y_end - ND) * 0.42)
     # --- panel seams
     panels = spec.get("panel_seams", [])
@@ -396,7 +438,7 @@ def draw_top(dr: _Draw, d: Dict[str, float], spec: dict, view: str):
         else:
             both(dr, seam, sw=1.4)
         m = bez(p0, p1, p2, p3, 0.55)
-        dr.anchors["panel_seam"] = (m[0] if m[0] < 0 else -m[0], m[1])
+        dr.anchors.setdefault("panel_seam", (m[0] if m[0] < 0 else -m[0], m[1]))
     if "yoke_front" in panels and front or "yoke_back" in panels and not front:
         yk = AD * 0.52
         dr.path([("M", (-S[0] + 1.2, yk + 1.0)), ("Q", (0, yk + 3.2), (S[0] - 1.2, yk + 1.0))], sw=1.3)
@@ -419,25 +461,25 @@ def draw_top(dr: _Draw, d: Dict[str, float], spec: dict, view: str):
             y1 = AD + (BL - AD) * 0.30; L = min(16.0, (BL - AD) * 0.34)
             for sgn in (-1, 1):
                 x = sgn * CW * 0.285
-                dr.rect(x - 0.45, y1, x + 0.45, y1 + L, fill="#fff", sw=1.3)
+                dr.rect(x - 0.45, y1, x + 0.45, y1 + L, fill=dr.body, sw=1.3)
                 dr.rect(x - 0.95, y1 - 0.3, x + 0.95, y1 + L + 0.3, dash=True, sw=0.9)
             dr.anchors["pocket"] = (-CW * 0.285 - 0.9, y1 + L / 2)
         if "chest_patch" in pk:
             x0, y0 = CW * 0.12, AD + 3.0
-            dr.rect(x0, y0, x0 + 12, y0 + 13, fill="#fff", sw=1.4)
+            dr.rect(x0, y0, x0 + 12, y0 + 13, fill=dr.body, sw=1.4)
             dr.rect(x0 + 0.8, y0 + 0.8, x0 + 11.2, y0 + 12.2, dash=True, sw=0.9)
             dr.anchors["pocket"] = (-(x0 + 6), y0 + 6.5)
     # --- drawcord
     if front and spec.get("drawcord") and hood:
         for sgn in (-1, 1):
             x = sgn * 3.3
-            dr.circle((x, ND + 1.2), 0.55, fill="#fff")
+            dr.circle((x, ND + 1.2), 0.55, fill=dr.body)
             dr.path([("M", (x, ND + 1.7)), ("Q", (x + sgn * 0.8, ND + 10), (x + sgn * 0.3, ND + 20))], sw=1.3)
-            dr.rect(x + sgn * 0.3 - 0.45, ND + 20, x + sgn * 0.3 + 0.45, ND + 22.4, fill="#fff", sw=1.1)
+            dr.rect(x + sgn * 0.3 - 0.45, ND + 20, x + sgn * 0.3 + 0.45, ND + 22.4, fill=dr.body, sw=1.1)
         dr.anchors["drawcord"] = (-3.6, ND + 12)
     # --- back neck label
     if not front:
-        dr.rect(-3.2, ND + 1.0, 3.2, ND + 3.4, fill="#fff", sw=1.1, dash=True)
+        dr.rect(-3.2, ND + 1.0, 3.2, ND + 3.4, fill=dr.body, sw=1.1, dash=True)
         dr.anchors["neck_label"] = (-3.2, ND + 2.2)
     # --- POM markers
     marks = {}
@@ -504,7 +546,13 @@ def draw_bottom(dr: _Draw, d: Dict[str, float], spec: dict, view: str):
              ("L", (out_k[0], out_k[1])), ("L", (out_t[0], out_t[1])),
              ("C", (out_t[0] + 0.3, yt - 4), (HipW / 2, FR * 0.85), (HipW / 2, FR * 0.55)),
              ("Q", ((WW / 2 + HipW / 2) / 2 + 0.6, FR * 0.25), (WW / 2, 0)), ("Z",)]
-    dr.path(out_cmds + right, fill="#fff", sw=1.9)
+    dr.path(out_cmds + right, fill=dr.body, sw=1.9)
+    if spec.get("piped_seams"):
+        for sgn in (-1, 1):
+            side = [("M", (sgn * (WW / 2 - 0.1), WBH)), ("Q", (sgn * ((WW / 2 + HipW / 2) / 2 + 0.6), FR * 0.28), (sgn * HipW / 2, FR * 0.55)),
+                    ("C", (sgn * HipW / 2, FR * 0.85), (sgn * (out_t[0] + 0.3), yt - 4), (sgn * out_t[0], yt)),
+                    ("L", (sgn * out_k[0], out_k[1])), ("L", (sgn * out_h[0], out_h[1] - 0.2))]
+            piping(dr, side)
     # waistband
     wb = spec.get("waistband", "elastic")
     dr.line((-WW / 2 + 0.2, WBH), (WW / 2 - 0.2, WBH), sw=1.5 if wb != "none" else 1.0)
@@ -512,10 +560,10 @@ def draw_bottom(dr: _Draw, d: Dict[str, float], spec: dict, view: str):
         dr.line((-WW / 2 + 0.4, WBH * 0.5), (WW / 2 - 0.4, WBH * 0.5), dash=True, sw=0.9)
     if wb == "belt_loops":
         for x in (-WW * 0.42, -WW * 0.22, WW * 0.22, WW * 0.42):
-            dr.rect(x - 0.5, -0.6, x + 0.5, WBH + 1.4, fill="#fff", sw=1.1)
+            dr.rect(x - 0.5, -0.6, x + 0.5, WBH + 1.4, fill=dr.body, sw=1.1)
     if wb == "drawcord" and front:
         for sgn in (-1, 1):
-            dr.circle((sgn * 2.6, WBH * 0.55), 0.5, fill="#fff")
+            dr.circle((sgn * 2.6, WBH * 0.55), 0.5, fill=dr.body)
             dr.path([("M", (sgn * 2.6, WBH * 0.8)), ("Q", (sgn * 3.4, WBH + 8), (sgn * 2.8, WBH + 16))], sw=1.3)
         dr.anchors["drawcord"] = (-3.0, WBH + 9)
     dr.anchors["waistband"] = (-WW * 0.36, WBH / 2)
@@ -526,7 +574,7 @@ def draw_bottom(dr: _Draw, d: Dict[str, float], spec: dict, view: str):
         dr.path([("M", (1.6, WBH)), ("L", (1.6, FR - 8)), ("Q", (1.6, FR - 2.6), (-0.5, FR - 3.6))], dash=True, sw=1.1)
         if cl == "button_fly":
             for k in range(4):
-                dr.circle((0.0, WBH + 3 + k * ((FR - 14) / 3)), 0.6, fill="#fff")
+                dr.circle((0.0, WBH + 3 + k * ((FR - 14) / 3)), 0.6, fill=dr.body)
         dr.anchors["fly"] = (0.0, FR * 0.5)
     else:
         dr.line((0, WBH), (0, FRv - 2.0), sw=1.3)
@@ -550,7 +598,7 @@ def draw_bottom(dr: _Draw, d: Dict[str, float], spec: dict, view: str):
             ox = min(outer_at(ya), outer_at(yb))
             x1, x0 = ox - 1.6, ox - 14.0
             def tx(x): return sgn * x
-            dr.path([("M", (tx(x0), ya)), ("L", (tx(x1), ya)), ("L", (tx(x1), yb)), ("L", (tx(x0), yb)), ("Z",)], fill="#fff", sw=1.4)
+            dr.path([("M", (tx(x0), ya)), ("L", (tx(x1), ya)), ("L", (tx(x1), yb)), ("L", (tx(x0), yb)), ("Z",)], fill=dr.body, sw=1.4)
             dr.path([("M", (tx(x0), ya + 6)), ("L", (tx(x1), ya + 6))], sw=1.3)
             dr.path([("M", (tx(x0 + 0.8), ya + 0.8)), ("L", (tx(x1 - 0.8), ya + 0.8)), ("L", (tx(x1 - 0.8), yb - 0.8)), ("L", (tx(x0 + 0.8), yb - 0.8)), ("Z",)], dash=True, sw=0.8)
         dr.anchors["cargo_pocket"] = (-(ox - 8), yt + 14)
@@ -559,7 +607,7 @@ def draw_bottom(dr: _Draw, d: Dict[str, float], spec: dict, view: str):
             for sgn in (-1, 1):
                 x0, x1 = sgn * 3.5, sgn * (HipW / 2 - 4.5)
                 ya = WBH + 4.0
-                dr.path([("M", (x0, ya)), ("L", (x1, ya)), ("L", (x1, ya + 15)), ("L", ((x0 + x1) / 2, ya + 17.5)), ("L", (x0, ya + 15)), ("Z",)], fill="#fff", sw=1.4)
+                dr.path([("M", (x0, ya)), ("L", (x1, ya)), ("L", (x1, ya + 15)), ("L", ((x0 + x1) / 2, ya + 17.5)), ("L", (x0, ya + 15)), ("Z",)], fill=dr.body, sw=1.4)
                 dr.line((x0 + sgn * 0.8, ya + 2.2), (x1 - sgn * 0.8, ya + 2.2), dash=True, sw=0.9)
             dr.anchors["back_pocket"] = (-(HipW / 2 - 4.5 + 3.5) / 2, WBH + 11)
     panels = spec.get("panel_seams", [])
@@ -592,7 +640,7 @@ def draw_bottom(dr: _Draw, d: Dict[str, float], spec: dict, view: str):
     marks["waist_width"] = ("h", (-WW / 2, -1.8), (WW / 2, -1.8))
     marks["hip_width"] = ("h", (-HipW / 2, FR * 0.55), (HipW / 2, FR * 0.55))
     marks["front_rise"] = ("v", (-1.2, 0), (-1.2, FR), 0.22)
-    marks["inseam"] = ("v", (in_k[0] - 1.8, FR), (in_h[0] - 1.8 + 0.0, yh)) if False else ("v", (in_k[0] + 1.6, FR), (in_k[0] + 1.6, yh))
+    marks["inseam"] = ("v", (in_k[0] - 1.8, FR), (in_h[0] - 1.8 + 0.0, yh)) if False else ("v", (in_k[0] + 1.6, FR), (in_k[0] + 1.6, yh), 0.62)
     marks["thigh_width"] = ("h", (axis(yt) - TW / 2 if False else crotch[0] + 0.0, yt), (out_t[0], yt))
     marks["knee_width"] = ("h", (in_k[0], yk), (out_k[0], yk))
     marks["leg_opening"] = ("h", (in_h[0], yh + 2.4), (out_h[0], yh + 2.4))
@@ -692,7 +740,7 @@ def _render_piece(pack: dict, spec: dict, piece: int) -> Optional[dict]:
     drawn = set()
     for view in ("front", "back"):
         for markers in (False, True):
-            dr = _Draw(s, ox, oy)
+            dr = _Draw(s, ox, oy, spec.get("body_colour", ""), spec.get("trim_colour", ""))
             marks = draw(dr, d, spec, view)
             if markers:
                 add_markers(dr, marks, {r: c for r, c in code_for.items() if r in marks})

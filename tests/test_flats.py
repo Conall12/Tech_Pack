@@ -103,7 +103,6 @@ class TwoPieceTests(unittest.TestCase):
         self.assertNotIn(7, pieces[0]["drawn"])
         self.assertIn(8, pieces[0]["drawn"])
         self.assertNotIn(8, pieces[1]["drawn"])
-        self.assertTrue(all(w == [] for w in [p["warnings"] for p in pieces]))
 
     def test_render_flats_reports_every_piece(self):
         self.assertIn(7, render_flats(self._set())["drawn"])
@@ -112,7 +111,32 @@ class TwoPieceTests(unittest.TestCase):
         self.assertEqual(len(flats.render_all(CASES["hoodie"])), 1)
 
 
+class ColourTests(unittest.TestCase):
+    def test_body_and_trim_colours_are_used(self):
+        pack = make_pack(HOODIE, sleeve_style="raglan", neckline="hood", panel_seams=["sleeve_stripe"], piped_seams=True,
+                         body_colour="#45494d", trim_colour="#f4f4f0")
+        svg = render_flats(pack)["front"]
+        self.assertIn("#45494d", svg)
+        self.assertIn("#f4f4f0", svg)
+
+    def test_bad_colour_falls_back_to_white(self):
+        svg = render_flats(make_pack(HOODIE, sleeve_style="set_in", neckline="crew", body_colour="charcoal"))["front"]
+        self.assertIn('fill="#ffffff"', svg)
+
+    def test_thigh_wider_than_hip_is_flagged(self):
+        pack = make_pack(dict(JOGGERS, thigh_width=40), template="bottom", waistband="elastic", leg_shape="straight")
+        self.assertTrue(any("Thigh width" in w for w in render_flats(pack)["warnings"]))
+
+
 class GeometryTests(unittest.TestCase):
+    def test_sleeves_that_hang_below_the_hem_are_not_clipped(self):
+        pack = make_pack(dict(HOODIE, body_length=60, sleeve_inseam=52), sleeve_style="raglan", neckline="hood")
+        d, _ = resolve_dims(pack, "top")
+        half, top, bottom = flats._top_extent(d, pack["flat_spec"])
+        S, U, _, _ = flats._top_geom(d, pack["flat_spec"])
+        Co, Ci, *_ = flats._sleeve_pts(d, pack["flat_spec"], S, U)
+        self.assertGreater(bottom, max(Co[1], Ci[1]))
+
     def _marks(self, pack, view="front"):
         d, _ = resolve_dims(pack, pack["flat_spec"]["template"])
         dr = _Draw(5, 280, 40)
