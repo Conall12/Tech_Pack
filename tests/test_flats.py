@@ -83,6 +83,35 @@ class RenderTests(unittest.TestCase):
         self.assertNotEqual(render_flats(a)["front"], render_flats(b)["front"])
 
 
+class TwoPieceTests(unittest.TestCase):
+    def _set(self):
+        pack = copy.deepcopy(CASES["hoodie"])
+        pack["flat_spec_2"] = copy.deepcopy(CASES["joggers"]["flat_spec"])
+        n = len(pack["measurements"])
+        for i, m in enumerate(CASES["joggers"]["measurements"]):
+            pack["measurements"].append(dict(m, code=f"J{i}"))
+        for dm in pack["flat_spec_2"]["dims"]:
+            dm["pom_code"] = "J" + str(ord(dm["pom_code"]) - 65)
+        pack["callouts"] += [{"number": 7, "label": "wb", "description": "", "anchor": "p2:waistband"},
+                             {"number": 8, "label": "pocket", "description": "", "anchor": "pocket"}]
+        return pack
+
+    def test_set_draws_two_garments_and_routes_callouts(self):
+        pieces = flats.render_all(self._set())
+        self.assertEqual([p["label"] for p in pieces], ["Top", "Bottom"])
+        self.assertIn(7, pieces[1]["drawn"])
+        self.assertNotIn(7, pieces[0]["drawn"])
+        self.assertIn(8, pieces[0]["drawn"])
+        self.assertNotIn(8, pieces[1]["drawn"])
+        self.assertTrue(all(w == [] for w in [p["warnings"] for p in pieces]))
+
+    def test_render_flats_reports_every_piece(self):
+        self.assertIn(7, render_flats(self._set())["drawn"])
+
+    def test_single_garment_has_one_piece(self):
+        self.assertEqual(len(flats.render_all(CASES["hoodie"])), 1)
+
+
 class GeometryTests(unittest.TestCase):
     def _marks(self, pack, view="front"):
         d, _ = resolve_dims(pack, pack["flat_spec"]["template"])

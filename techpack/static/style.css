@@ -206,8 +206,11 @@ th.base, td.base { background: #f3f1ee; font-weight: 700; }
   .two { gap: 18px; }
   .section + .section { margin-top: 10px; }
   ul.tight li { margin-bottom: 2px; }
+  .flats { grid-template-columns: 1fr 1fr !important; gap: 10px; }
   .flats figure { padding: 8px; }
-  .flats img { max-height: 125mm; }
+  .flats img { max-height: 120mm; }
+  .flat-piece + .flat-piece { page-break-before: always; }
+  .piece-title { font-size: 11px; margin: 0 0 6px; }
   .refs img { height: 48mm; }
   .hint { font-size: 8px; margin-top: 2px; }
 }
@@ -278,5 +281,7 @@ body.editing .ed:focus { outline: 2px solid var(--ink); background: var(--surfac
 .flat-tools { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin: -6px 0 14px; }
 .switch { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; margin: 0; font-weight: 600; }
 .switch input { width: 16px; height: 16px; accent-color: var(--ink); }
-.flats.pom-on .no-pom, .flats.pom-off .with-pom { display: none; }
+.pom-on .no-pom, .pom-off .with-pom { display: none; }
+.piece-title { margin: 18px 0 10px; font-size: 13px; font-weight: 650; letter-spacing: -.01em; }
+.flat-piece:first-child .piece-title { margin-top: 0; }
 .flats img { background: #fff; }

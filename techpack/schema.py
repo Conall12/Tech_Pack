@@ -1,6 +1,6 @@
 """Structured tech pack schema. Claude fills this in; templates render it."""
 
-from typing import List, Literal
+from typing import List, Literal, Optional
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -90,7 +90,7 @@ class FlatDim(BaseModel):
         description="TOPS: body_length (HPS to hem), chest_width, hem_width, armhole_drop (HPS to underarm), shoulder_width "
         "(seam to seam; skip for raglan), sleeve_inseam (underarm to cuff; PREFERRED), sleeve_length (shoulder point to "
         "cuff, only if there is no inseam; never map a centre-back sleeve length), cuff_width, neck_width, "
-        "front_neck_drop, hood_height, hood_width. BOTTOMS: waist_width, hip_width, front_rise, inseam, thigh_width, "
+        "front_neck_drop, bicep_width (sleeve width 2.5 cm below the underarm; always map it when the table has one), hood_height, hood_width. BOTTOMS: waist_width, hip_width, front_rise, inseam, thigh_width, "
         "knee_width, leg_opening, waistband_height."
     )
     pom_code: str = Field(
@@ -135,6 +135,12 @@ class TechPack(BaseModel):
     key_design_details: List[str]
 
     flat_spec: FlatSpec
+    flat_spec_2: Optional[FlatSpec] = Field(
+        default=None,
+        description="Only for a two-piece set (e.g. hoodie + joggers): the spec of the SECOND garment, drawn on its own flats. "
+        "flat_spec is the first. Its dims map to rows in the same measurement table. Callouts for the second garment "
+        "use an anchor starting 'p2:' (e.g. 'p2:waistband'). Null for single garments.",
+    )
     front_flat_svg: str = Field(
         description="Leave as an empty string when flat_spec.template is top or bottom (the app draws the flats). "
         "Only for template 'other': a complete standalone <svg> FRONT flat, black line art on white, "

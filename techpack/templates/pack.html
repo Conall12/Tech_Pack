@@ -127,9 +127,16 @@
       <label class="switch"><input type="checkbox" id="pom-toggle" checked><span>Show measurement markers</span></label>
       <span class="hint" style="margin:0">Drawn to scale from the measurement table (size {{ pack.base_size }}). Red letters are the measurement codes.</span>
     </div>
-    <div class="flats pom-on" id="flat-figs">
-      <figure><img class="with-pom" src="{{ flats.front_pom }}" alt="Front flat with measurement markers"><img class="no-pom" src="{{ flats.front }}" alt="Front flat"><figcaption>Front</figcaption></figure>
-      <figure><img class="with-pom" src="{{ flats.back_pom }}" alt="Back flat with measurement markers"><img class="no-pom" src="{{ flats.back }}" alt="Back flat"><figcaption>Back</figcaption></figure>
+    <div id="flat-figs" class="pom-on">
+      {% for f in flats %}
+      <div class="flat-piece">
+        {% if flats|length > 1 %}<h3 class="piece-title">{{ f.label }}</h3>{% endif %}
+        <div class="flats">
+          <figure><img class="with-pom" src="{{ f.front_pom }}" alt="{{ f.label }} front flat with measurement markers"><img class="no-pom" src="{{ f.front }}" alt="{{ f.label }} front flat"><figcaption>Front</figcaption></figure>
+          <figure><img class="with-pom" src="{{ f.back_pom }}" alt="{{ f.label }} back flat with measurement markers"><img class="no-pom" src="{{ f.back }}" alt="{{ f.label }} back flat"><figcaption>Back</figcaption></figure>
+        </div>
+      </div>
+      {% endfor %}
     </div>
     {% else %}
     <div class="flats">

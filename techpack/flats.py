@@ -41,7 +41,9 @@ def _num(v) -> Optional[float]:
 
 
 def _norm_anchor(a: str) -> str:
-    a = re.sub(r"[^a-z_:]+", "_", str(a or "").strip().lower()).strip("_")
+    a = re.sub(r"[^a-z0-9_:]+", "_", str(a or "").strip().lower()).strip("_")
+    if a.startswith("p2:"):
+        return "p2:" + _norm_anchor(a[3:])
     if ":" in a:
         view, name = a.split(":", 1)
         return f"{view}:{ANCHOR_ALIASES.get(name, name)}"
@@ -50,9 +52,9 @@ def _norm_anchor(a: str) -> str:
 
 # ---------------------------------------------------------------- dimensions
 
-def resolve_dims(pack: dict, template: str) -> Tuple[Dict[str, float], List[str]]:
+def resolve_dims(pack: dict, template: str, spec: Optional[dict] = None) -> Tuple[Dict[str, float], List[str]]:
     """Base-size dimensions in cm for each role, plus warnings about anything defaulted."""
-    spec = pack.get("flat_spec") or {}
+    spec = spec if spec is not None else (pack.get("flat_spec") or {})
     warnings: List[str] = []
     by_code = {str(m.get("code", "")).strip().upper(): m for m in pack.get("measurements", [])}
     sizes, base = pack.get("sizes", []), pack.get("base_size")
@@ -630,12 +632,18 @@ def _esc(s: str) -> str:
     return str(s).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
-def add_callouts(dr: _Draw, callouts: List[dict], view: str, half_px: float) -> List[int]:
-    """Numbered circles beside the silhouette with leader lines to the feature. Returns numbers drawn."""
+def add_callouts(dr: _Draw, callouts: List[dict], view: str, half_px: float, piece: int = 0) -> List[int]:
+    """Numbered circles beside the silhouette with leader lines to the feature. Returns numbers drawn.
+    A "p2:" prefix on an anchor sends it to the second garment of a set (piece 1); unprefixed anchors go to the first."""
     placed = []
     items = []
     for c in callouts:
         a = _norm_anchor(c.get("anchor", ""))
+        second = a.startswith("p2:")
+        if second != bool(piece):
+            continue
+        if second:
+            a = a[3:]
         if ":" in a:
             v, a = a.split(":", 1)
             if v != view:
@@ -669,20 +677,18 @@ def add_callouts(dr: _Draw, callouts: List[dict], view: str, half_px: float) -> 
 
 # ---------------------------------------------------------------- public API
 
-def render_flats(pack: dict) -> Optional[dict]:
-    """Return {front, back, front_pom, back_pom, drawn, warnings} or None if this pack uses stored drawings."""
-    spec = pack.get("flat_spec") or {}
+def _render_piece(pack: dict, spec: dict, piece: int) -> Optional[dict]:
     template = spec.get("template")
     if template not in ("top", "bottom"):
         return None
-    d, warnings = resolve_dims(pack, template)
+    d, warnings = resolve_dims(pack, template, spec)
     draw, extent = (draw_top, _top_extent) if template == "top" else (draw_bottom, _bottom_extent)
     half, ytop, ybot = extent(d, spec)
     s = min((VW - 2 * PAD_X) / (2 * half), (680 - PAD_TOP - PAD_BOT) / (ybot - ytop))
     vh = int((ybot - ytop) * s + PAD_TOP + PAD_BOT)
     ox, oy = VW / 2, PAD_TOP - ytop * s
     code_for = {x.get("role"): str(x.get("pom_code", "")).strip().upper() for x in spec.get("dims", [])}
-    out: Dict[str, object] = {"warnings": warnings}
+    out: Dict[str, object] = {"warnings": warnings, "label": "Top" if template == "top" else "Bottom"}
     drawn = set()
     for view in ("front", "back"):
         for markers in (False, True):
@@ -690,11 +696,35 @@ def render_flats(pack: dict) -> Optional[dict]:
             marks = draw(dr, d, spec, view)
             if markers:
                 add_markers(dr, marks, {r: c for r, c in code_for.items() if r in marks})
-            nums = add_callouts(dr, pack.get("callouts", []), view, half * s + 14)
+            nums = add_callouts(dr, pack.get("callouts", []), view, half * s + 14, piece)
             drawn.update(nums)
             body = "".join(dr.back) + "".join(dr.parts) + "".join(dr.call)
             out[view + ("_pom" if markers else "")] = (
                 f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {VW} {vh}" width="{VW}" height="{vh}">'
                 f'<rect width="{VW}" height="{vh}" fill="#fff"/>{body}</svg>')
     out["drawn"] = sorted(drawn)
+    return out
+
+
+def render_all(pack: dict) -> List[dict]:
+    """One drawn set (front/back, with and without markers) per garment: the main flat_spec and, for two-piece sets, flat_spec_2."""
+    pieces = []
+    for i, key in enumerate(("flat_spec", "flat_spec_2")):
+        r = _render_piece(pack, pack.get(key) or {}, i)
+        if r:
+            pieces.append(r)
+    if len(pieces) == 2 and pieces[0]["label"] == pieces[1]["label"]:
+        pieces[0]["label"], pieces[1]["label"] = "Piece 1", "Piece 2"
+    return pieces
+
+
+def render_flats(pack: dict) -> Optional[dict]:
+    """The main garment's {front, back, front_pom, back_pom, drawn, warnings}; None if this pack uses stored drawings.
+    drawn and warnings cover every garment in the set."""
+    pieces = render_all(pack)
+    if not pieces or not (pack.get("flat_spec") or {}).get("template") in ("top", "bottom"):
+        return None
+    out = dict(pieces[0])
+    out["drawn"] = sorted({n for p in pieces for n in p["drawn"]})
+    out["warnings"] = [w for p in pieces for w in p["warnings"]]
     return out
